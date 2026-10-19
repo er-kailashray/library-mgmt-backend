@@ -2,22 +2,21 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\Seat;
 use App\Models\Batch;
+use App\Models\Seat;
 use App\Models\SeatAllocation;
+use Illuminate\Http\Request;
 
 class SeatController extends Controller
 {
-
     public function index(Request $request)
     {
         $library = auth()->user()->libraries()->first();
 
-        if (!$library) {
+        if (! $library) {
             return response()->json([
                 'status' => false,
-                'message' => 'Library not found'
+                'message' => 'Library not found',
             ], 404);
         }
 
@@ -29,13 +28,6 @@ class SeatController extends Controller
         }
 
         $batches = $batchQuery->get();
-
-        if ($batches->isEmpty()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'No batches found'
-            ], 404);
-        }
 
         // Get seats
         $seats = Seat::where('library_id', $library->id)->get();
@@ -60,14 +52,14 @@ class SeatController extends Controller
             $seatData = [
                 'seat_id' => $seat->id,
                 'seat_number' => $seat->seat_number,
-                'batches' => []
+                'batches' => [],
             ];
 
             foreach ($batches as $batch) {
                 $seatData['batches'][] = [
                     'batch_id' => $batch->id,
                     'batch_name' => $batch->name,
-                    'available' => !isset($occupied[$seat->id][$batch->id])
+                    'available' => ! isset($occupied[$seat->id][$batch->id]),
                 ];
             }
 
@@ -78,8 +70,8 @@ class SeatController extends Controller
             'status' => true,
             'data' => [
                 'batches' => $batches,
-                'seats' => $matrix
-            ]
+                'seats' => $matrix,
+            ],
         ]);
     }
 }
