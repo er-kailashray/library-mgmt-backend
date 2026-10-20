@@ -133,6 +133,56 @@ class MemberDetailApiTest extends TestCase
         $this->assertSame('9123456780', $member->phone);
     }
 
+    public function test_cannot_change_phone_of_a_member_who_has_left(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+        $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/deactivate")->assertOk();
+
+        $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/update", [
+            'name' => 'Rahul Sharma',
+            'phone' => '9123456780',
+        ])->assertStatus(422);
+
+        $this->assertSame($member->phone, $member->fresh()->phone);
+    }
+
+    public function test_can_rename_a_member_who_has_left_without_changing_their_phone(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+        $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/deactivate")->assertOk();
+
+        $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/update", [
+            'name' => 'Rahul Sharma (typo fixed)',
+            'phone' => $member->phone,
+        ])->assertOk();
+
+        $this->assertSame('Rahul Sharma (typo fixed)', $member->fresh()->name);
+    }
+
+    public function test_can_update_member_gender(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+
+        $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/update", [
+            'name' => $member->name,
+            'phone' => $member->phone,
+            'gender' => 'male',
+        ])->assertOk()->assertJsonPath('data.gender', 'male');
+
+        $this->assertSame('male', $member->fresh()->gender);
+    }
+
+    public function test_update_rejects_invalid_gender(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+
+        $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/update", [
+            'name' => $member->name,
+            'phone' => $member->phone,
+            'gender' => 'not-a-gender',
+        ])->assertStatus(422)->assertJsonValidationErrors('gender');
+    }
+
     public function test_update_rejects_phone_already_used_by_another_member_in_same_library(): void
     {
         $first = $this->admit('Rahul Sharma', 1, '2026-11-01');

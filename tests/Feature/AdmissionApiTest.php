@@ -37,6 +37,32 @@ class AdmissionApiTest extends TestCase
         $this->assertSame(1, Member::where('library_id', $this->library->id)->count());
     }
 
+    public function test_creates_member_with_gender(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/admission', [
+            'name' => 'Priya Verma',
+            'phone' => '9876543211',
+            'gender' => 'female',
+            'allocations' => [
+                ['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)],
+            ],
+        ])->assertOk();
+
+        $this->assertSame('female', Member::where('phone', '9876543211')->first()->gender);
+    }
+
+    public function test_rejects_invalid_gender(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/admission', [
+            'name' => 'Rahul Sharma',
+            'phone' => '9876543210',
+            'gender' => 'not-a-gender',
+            'allocations' => [
+                ['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)],
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors('gender');
+    }
+
     /**
      * Readmitting the same phone number (e.g. adding an evening batch to an
      * existing morning-batch student) must not create a second Member row -

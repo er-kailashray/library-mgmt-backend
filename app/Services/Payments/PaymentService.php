@@ -38,6 +38,8 @@ class PaymentService
                 'date' => $due->oldestRenewalDate->toDateString(),
                 'status' => PaymentStatus::Pending->label(),
                 'method' => '',
+                // Dues are only computed from active allocations, so these members are always active.
+                'member_status' => 'active',
             ]);
 
         $recorded = $this->payments->allForLibrary($library->id)
@@ -86,6 +88,7 @@ class PaymentService
             'id' => (string) $payment->id,
             'member_id' => $payment->member_id,
             'member_name' => $payment->member->name,
+            'member_status' => $payment->member->status,
             'amount' => $payment->amount,
             'date' => $payment->payment_date->toDateString(),
             'status' => $payment->status->label(),

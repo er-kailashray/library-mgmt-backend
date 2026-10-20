@@ -67,6 +67,7 @@ class MemberController extends Controller
         $request->validate([
             'name' => 'required|string|max:100',
             'phone' => 'required|regex:/^[6-9]\d{9}$/',
+            'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
             'allocations' => 'required|array|min:1',
             'allocations.*.batch_id' => 'required|exists:batches,id',
             'allocations.*.seat_id' => 'required|exists:seats,id',
@@ -147,12 +148,13 @@ class MemberController extends Controller
                     ], 422);
                 }
 
-                $member->update(['name' => $request->name, 'status' => 'active']);
+                $member->update(['name' => $request->name, 'gender' => $request->gender ?? $member->gender, 'status' => 'active']);
             } else {
                 $member = Member::create([
                     'library_id' => $library->id,
                     'name' => $request->name,
                     'phone' => $request->phone,
+                    'gender' => $request->gender,
                     'status' => 'active',
                 ]);
             }
@@ -201,6 +203,7 @@ class MemberController extends Controller
                 'id' => $member->id,
                 'name' => $member->name,
                 'phone' => $member->phone,
+                'gender' => $member->gender,
                 'status' => $member->status,
                 'payment_status' => $due ? 'Due' : 'Paid',
                 'due_amount' => $due?->amount,
@@ -236,14 +239,25 @@ class MemberController extends Controller
                 'regex:/^[6-9]\d{9}$/',
                 Rule::unique('members', 'phone')->where('library_id', $library->id)->ignore($member->id),
             ],
+            'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
         ]);
+
+        // Phone is the key admission() uses to recognize a rejoining member and reactivate
+        // their existing record instead of creating a duplicate - it must stay stable once
+        // they've left, or that match breaks (for them, and for whoever gets that number next).
+        if ($member->status === 'inactive' && $validated['phone'] !== $member->phone) {
+            return response()->json([
+                'status' => false,
+                'message' => "Phone number can't be changed for a member who has left - it's used to recognize them if they rejoin.",
+            ], 422);
+        }
 
         $member->update($validated);
 
         return response()->json([
             'status' => true,
             'message' => 'Member updated',
-            'data' => ['id' => $member->id, 'name' => $member->name, 'phone' => $member->phone],
+            'data' => ['id' => $member->id, 'name' => $member->name, 'phone' => $member->phone, 'gender' => $member->gender],
         ]);
     }
 

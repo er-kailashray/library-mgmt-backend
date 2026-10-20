@@ -10,6 +10,7 @@ class Member extends Model
         'library_id',
         'name',
         'phone',
+        'gender',
         'join_date',
         'status',
         'id_proof_type',
