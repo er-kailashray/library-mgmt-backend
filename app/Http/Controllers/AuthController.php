@@ -63,17 +63,19 @@ class AuthController extends Controller
 
             // SMS delivery is disabled for now; the OTP is only written to the log
             Log::info('Registration OTP generated', [
-                'to' => '+91' . $request->phone,
+                'to' => '+91'.$request->phone,
                 'otp' => $otp,
             ]);
 
             DB::commit();
+
             return response()->json([
-                'message' => 'OTP Sent'
+                'message' => 'OTP Sent',
             ]);
         } catch (\Exception $e) {
             Log::error($e);
             DB::rollBack();
+
             return response()->json(['message' => 'Something went wrong'], 500);
         }
     }
@@ -88,7 +90,7 @@ class AuthController extends Controller
 
         $user = User::where('phone', $request->phone)->first();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json(['message' => 'User not found'], 404);
         }
 
@@ -99,7 +101,7 @@ class AuthController extends Controller
             ->latest()
             ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             return response()->json(['message' => 'Invalid or expired OTP'], 400);
         }
 
@@ -107,8 +109,9 @@ class AuthController extends Controller
             return response()->json(['message' => 'Too many attempts. Please request a new OTP'], 429);
         }
 
-        if (!Hash::check($request->otp, $otpRecord->otp)) {
+        if (! Hash::check($request->otp, $otpRecord->otp)) {
             $otpRecord->increment('attempts');
+
             return response()->json(['message' => 'Invalid or expired OTP'], 400);
         }
 
@@ -117,6 +120,7 @@ class AuthController extends Controller
         // send token if type is login or register for login flow
         if (in_array($request->type, ['login', 'register'])) {
             $token = $user->createToken('auth_token')->plainTextToken;
+
             return response()->json([
                 'message' => 'OTP verified successfully',
                 'token' => $token,
@@ -131,12 +135,12 @@ class AuthController extends Controller
     {
         $request->validate([
             'phone' => 'required',
-            'password' => 'required'
+            'password' => 'required',
         ]);
 
         $user = User::where('phone', $request->phone)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             return response()->json(['message' => 'Invalid Credentials'], 401);
         }
 
@@ -148,14 +152,14 @@ class AuthController extends Controller
         ]);
     }
 
-    function logout(Request $request)
+    public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Logged out succcessfully']);
     }
 
-    function me(Request $request)
+    public function me(Request $request)
     {
         return response()->json($request->user());
     }

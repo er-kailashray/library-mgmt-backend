@@ -10,7 +10,7 @@ class TwilioSmsProvider implements SmsProviderInterface
 {
     protected Client $client;
 
-    public function __construct() 
+    public function __construct()
     {
         $this->client = new Client(config('services.twilio.sid'), config('services.twilio.token'));
     }

@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace App\Notifications\Factory;
 
@@ -10,7 +10,7 @@ class ProviderFactory
 {
     public static function make(string $channel)
     {
-        return match($channel) {
+        return match ($channel) {
 
             'sms' => app(TwilioSmsProvider::class),
 

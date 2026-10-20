@@ -3,13 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Models\Batch;
+use App\Models\Library;
 use App\Models\Member;
 use App\Models\Seat;
 use App\Models\SeatAllocation;
 use App\Services\Dues\MemberDueService;
 use App\Services\Reminders\ReminderService;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class MemberController extends Controller
 {
@@ -200,6 +204,9 @@ class MemberController extends Controller
                 'status' => $member->status,
                 'payment_status' => $due ? 'Due' : 'Paid',
                 'due_amount' => $due?->amount,
+                'id_proof_type' => $member->id_proof_type,
+                'has_id_proof_front' => (bool) $member->id_proof_front_path,
+                'has_id_proof_back' => (bool) $member->id_proof_back_path,
                 'allocations' => $member->allocations->map(function ($allocation) {
                     return [
                         'batch_id' => $allocation->batch_id,
@@ -211,6 +218,65 @@ class MemberController extends Controller
                 }),
             ],
         ]);
+    }
+
+    public function update(Request $request, int $id)
+    {
+        $library = $this->library($request);
+        $member = Member::where('library_id', $library->id)->find($id);
+
+        if (! $member) {
+            return response()->json(['status' => false, 'message' => 'Member not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:100',
+            'phone' => [
+                'required',
+                'regex:/^[6-9]\d{9}$/',
+                Rule::unique('members', 'phone')->where('library_id', $library->id)->ignore($member->id),
+            ],
+        ]);
+
+        $member->update($validated);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Member updated',
+            'data' => ['id' => $member->id, 'name' => $member->name, 'phone' => $member->phone],
+        ]);
+    }
+
+    public function updateIdProof(Request $request, int $id)
+    {
+        $library = $this->library($request);
+        $member = Member::where('library_id', $library->id)->find($id);
+
+        if (! $member) {
+            return response()->json(['status' => false, 'message' => 'Member not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'id_proof_type' => ['required', Rule::in(['aadhaar', 'pan', 'voter_id_dl', 'student_id', 'other'])],
+            'side' => ['required', Rule::in(['front', 'back'])],
+            'id_proof' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:5120'],
+        ]);
+
+        $this->storeIdProof($library, $member, $request->file('id_proof'), $validated['id_proof_type'], $validated['side']);
+
+        return response()->json(['status' => true, 'message' => 'ID proof saved']);
+    }
+
+    private function storeIdProof(Library $library, Member $member, UploadedFile $file, string $type, string $side): void
+    {
+        $column = $side === 'front' ? 'id_proof_front_path' : 'id_proof_back_path';
+
+        if ($member->$column) {
+            Storage::disk('local')->delete($member->$column);
+        }
+
+        $path = $file->store("id-proofs/{$library->id}", 'local');
+        $member->update(['id_proof_type' => $type, $column => $path]);
     }
 
     public function deactivate(Request $request, int $id)
@@ -230,6 +296,26 @@ class MemberController extends Controller
             'status' => true,
             'message' => 'Member marked as inactive and their seats were freed',
         ]);
+    }
+
+    public function idProof(Request $request, int $id, string $side)
+    {
+        if (! in_array($side, ['front', 'back'], true)) {
+            return response()->json(['status' => false, 'message' => 'Invalid side'], 404);
+        }
+
+        $member = Member::where('library_id', $this->library($request)->id)->find($id);
+        $column = $side === 'front' ? 'id_proof_front_path' : 'id_proof_back_path';
+
+        if (! $member || ! $member->$column) {
+            return response()->json(['status' => false, 'message' => 'No ID proof on file'], 404);
+        }
+
+        if (! Storage::disk('local')->exists($member->$column)) {
+            return response()->json(['status' => false, 'message' => 'ID proof file is missing'], 404);
+        }
+
+        return Storage::disk('local')->response($member->$column);
     }
 
     public function remind(Request $request, int $id)

@@ -114,4 +114,18 @@ class AdmissionApiTest extends TestCase
 
         $this->assertSame('active', $member->fresh()->status);
     }
+
+    public function test_admission_without_id_proof_still_works(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/admission', [
+            'name' => 'Rahul Sharma',
+            'phone' => '9876543210',
+            'allocations' => [['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)]],
+        ])->assertOk();
+
+        $member = Member::where('phone', '9876543210')->first();
+        $this->assertNull($member->id_proof_type);
+        $this->assertNull($member->id_proof_front_path);
+        $this->assertNull($member->id_proof_back_path);
+    }
 }

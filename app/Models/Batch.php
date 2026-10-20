@@ -23,5 +23,4 @@ class Batch extends Model
     {
         return $this->hasMany(SeatAllocation::class);
     }
-
 }

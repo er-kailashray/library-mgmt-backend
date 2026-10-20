@@ -12,6 +12,16 @@ class Member extends Model
         'phone',
         'join_date',
         'status',
+        'id_proof_type',
+        'id_proof_front_path',
+        'id_proof_back_path',
+    ];
+
+    // Internal storage paths - never meant to reach the client directly, which
+    // uses the authenticated GET /members/{id}/id-proof/{side} endpoint instead.
+    protected $hidden = [
+        'id_proof_front_path',
+        'id_proof_back_path',
     ];
 
     public function library()

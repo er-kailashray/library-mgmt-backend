@@ -12,7 +12,7 @@ class BatchController extends Controller
     {
         $library = $this->getLoggedInUserLibraries();
 
-        if (!$library) {
+        if (! $library) {
             return response()->json(['status' => false, 'message' => 'Library not found!'], 400);
         }
 
@@ -20,7 +20,7 @@ class BatchController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $batches
+            'data' => $batches,
         ]);
     }
 
@@ -28,7 +28,7 @@ class BatchController extends Controller
     {
         $library = $this->getLoggedInUserLibraries();
 
-        if (!$library) {
+        if (! $library) {
             return response()->json(['status' => false, 'message' => 'Library not found!'], 400);
         }
 
@@ -51,7 +51,7 @@ class BatchController extends Controller
         if ($overlap) {
             return response()->json([
                 'status' => false,
-                'message' => 'Batch time overlaps with existing batch'
+                'message' => 'Batch time overlaps with existing batch',
             ], 422);
         }
 

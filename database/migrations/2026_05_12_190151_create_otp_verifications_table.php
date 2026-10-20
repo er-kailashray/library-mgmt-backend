@@ -19,7 +19,7 @@ return new class extends Migration
             $table->unsignedTinyInteger('attempts')->default(0);
             $table->string('channel')->nullable(); // sms / whatsapp
             $table->timestamps();
-            
+
             // Useful Indexes
             $table->index(['user_id', 'type']);
             $table->index('expires_at');
