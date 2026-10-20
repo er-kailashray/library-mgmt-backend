@@ -4,6 +4,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BatchController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ReminderController;
@@ -18,6 +19,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/me', [AuthController::class, 'me']);
+    Route::post('/me/update', [AuthController::class, 'updateProfile']);
     Route::get('/members', [MemberController::class, 'index']);
     Route::get('/batches', [BatchController::class, 'index']);
     Route::post('/batches', [BatchController::class, 'store']);
@@ -39,5 +41,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/renewals/upcoming/remind', [RenewalController::class, 'remindAll']);
         Route::get('/attendance', [AttendanceController::class, 'index']);
         Route::post('/attendance', [AttendanceController::class, 'store']);
+        Route::get('/library', [LibraryController::class, 'show']);
+        Route::post('/library/update', [LibraryController::class, 'update']);
+        Route::post('/library/amenities', [LibraryController::class, 'updateAmenities']);
+        Route::post('/library/photos', [LibraryController::class, 'uploadPhoto']);
+        Route::delete('/library/photos/{id}', [LibraryController::class, 'deletePhoto']);
     });
 });

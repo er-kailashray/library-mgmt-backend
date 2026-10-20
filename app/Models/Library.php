@@ -10,6 +10,11 @@ class Library extends Model
         'user_id',
         'library_name',
         'total_seats',
+        'amenities',
+    ];
+
+    protected $casts = [
+        'amenities' => 'array',
     ];
 
     public function user()
@@ -20,6 +25,11 @@ class Library extends Model
     public function seats()
     {
         return $this->hasMany(Seat::class);
+    }
+
+    public function photos()
+    {
+        return $this->hasMany(LibraryPhoto::class);
     }
 
     public function batches()

@@ -88,4 +88,37 @@ class AuthApiTest extends TestCase
             'type' => 'login',
         ])->assertStatus(429);
     }
+
+    public function test_can_update_own_name_and_phone(): void
+    {
+        $user = User::factory()->create(['name' => 'Asha Owner', 'phone' => '9876543210']);
+
+        $this->actingAs($user)->postJson('/api/me/update', [
+            'name' => 'Asha K. Owner',
+            'phone' => '9123456780',
+        ])->assertOk()->assertJsonPath('user.name', 'Asha K. Owner');
+
+        $user->refresh();
+        $this->assertSame('Asha K. Owner', $user->name);
+        $this->assertSame('9123456780', $user->phone);
+    }
+
+    public function test_cannot_update_phone_to_one_already_used_by_another_user(): void
+    {
+        User::factory()->create(['phone' => '9876500001']);
+        $user = User::factory()->create(['phone' => '9876543210']);
+
+        $this->actingAs($user)->postJson('/api/me/update', [
+            'name' => $user->name,
+            'phone' => '9876500001',
+        ])->assertStatus(422)->assertJsonValidationErrors('phone');
+    }
+
+    public function test_update_profile_requires_authentication(): void
+    {
+        $this->postJson('/api/me/update', [
+            'name' => 'Someone',
+            'phone' => '9876543210',
+        ])->assertUnauthorized();
+    }
 }
