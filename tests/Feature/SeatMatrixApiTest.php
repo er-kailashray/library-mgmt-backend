@@ -52,6 +52,26 @@ class SeatMatrixApiTest extends TestCase
             ->assertJsonPath('data.seats.0.batches', []);
     }
 
+    public function test_seats_are_ordered_by_seat_number_not_insertion_order(): void
+    {
+        $owner = User::factory()->create();
+        $library = Library::create([
+            'user_id' => $owner->id,
+            'library_name' => 'Fresh Library',
+            'total_seats' => 3,
+        ]);
+        // Inserted out of order, so a correct response proves the query sorts explicitly.
+        Seat::create(['library_id' => $library->id, 'seat_number' => 3]);
+        Seat::create(['library_id' => $library->id, 'seat_number' => 1]);
+        Seat::create(['library_id' => $library->id, 'seat_number' => 2]);
+
+        $this->actingAs($owner)->getJson('/api/seat-matrix')
+            ->assertOk()
+            ->assertJsonPath('data.seats.0.seat_number', 1)
+            ->assertJsonPath('data.seats.1.seat_number', 2)
+            ->assertJsonPath('data.seats.2.seat_number', 3);
+    }
+
     public function test_seat_matrix_requires_authentication(): void
     {
         $this->getJson('/api/seat-matrix')->assertUnauthorized();
