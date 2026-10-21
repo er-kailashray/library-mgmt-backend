@@ -30,7 +30,7 @@ class SeatController extends Controller
         $batches = $batchQuery->get();
 
         // Get seats
-        $seats = Seat::where('library_id', $library->id)->get();
+        $seats = Seat::where('library_id', $library->id)->orderBy('seat_number')->get();
 
         // Get active allocations for selected batches
         $allocations = SeatAllocation::where('library_id', $library->id)

@@ -168,7 +168,7 @@ class MemberController extends Controller
                     'batch_id' => $allocation['batch_id'],
                     'seat_id' => $allocation['seat_id'],
                     'start_date' => now(),
-                    'renewal_date' => now()->addMonth(),
+                    'renewal_date' => now()->addMonthNoOverflow(),
                     'status' => 'active',
                 ]);
             }

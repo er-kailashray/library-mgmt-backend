@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Batch;
 use App\Models\Member;
 use App\Models\Seat;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsLibrary;
 use Tests\TestCase;
@@ -35,6 +36,23 @@ class AdmissionApiTest extends TestCase
         ])->assertOk()->assertJsonPath('status', true);
 
         $this->assertSame(1, Member::where('library_id', $this->library->id)->count());
+    }
+
+    public function test_joining_on_the_31st_sets_renewal_date_to_month_end_not_overflowing(): void
+    {
+        $this->travelTo(Carbon::create(2026, 1, 31));
+
+        $this->actingAs($this->owner)->postJson('/api/admission', [
+            'name' => 'Rahul Sharma',
+            'phone' => '9876543210',
+            'allocations' => [
+                ['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)],
+            ],
+        ])->assertOk();
+
+        $member = Member::where('phone', '9876543210')->first();
+        // 2026 is not a leap year, so Feb has 28 days - must not overflow into March.
+        $this->assertStringStartsWith('2026-02-28', $member->allocations()->first()->renewal_date);
     }
 
     public function test_creates_member_with_gender(): void
