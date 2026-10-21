@@ -20,6 +20,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/me', [AuthController::class, 'me']);
     Route::post('/me/update', [AuthController::class, 'updateProfile']);
+    Route::post('/me/photo', [AuthController::class, 'uploadPhoto']);
     Route::get('/members', [MemberController::class, 'index']);
     Route::get('/batches', [BatchController::class, 'index']);
     Route::post('/batches', [BatchController::class, 'store']);
@@ -44,6 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/library', [LibraryController::class, 'show']);
         Route::post('/library/update', [LibraryController::class, 'update']);
         Route::post('/library/amenities', [LibraryController::class, 'updateAmenities']);
+        Route::post('/library/location', [LibraryController::class, 'updateLocation']);
         Route::post('/library/photos', [LibraryController::class, 'uploadPhoto']);
         Route::delete('/library/photos/{id}', [LibraryController::class, 'deletePhoto']);
     });

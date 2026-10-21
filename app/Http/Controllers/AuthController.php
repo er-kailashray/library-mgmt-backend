@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
@@ -182,6 +183,28 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Profile updated',
+            'user' => $user,
+        ]);
+    }
+
+    public function uploadPhoto(Request $request)
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'photo' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:5120'],
+        ]);
+
+        $path = $request->file('photo')->store("profile-photos/{$user->id}", 'public');
+
+        if ($user->profile_photo) {
+            Storage::disk('public')->delete($user->profile_photo);
+        }
+
+        $user->update(['profile_photo' => $path]);
+
+        return response()->json([
+            'message' => 'Profile photo updated',
             'user' => $user,
         ]);
     }

@@ -6,8 +6,10 @@ use App\Models\OtpVerification;
 use App\Models\User;
 use App\Notifications\Services\NotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AuthApiTest extends TestCase
@@ -120,5 +122,49 @@ class AuthApiTest extends TestCase
             'name' => 'Someone',
             'phone' => '9876543210',
         ])->assertUnauthorized();
+    }
+
+    public function test_can_upload_profile_photo_and_replace_it(): void
+    {
+        Storage::fake('public');
+        $user = User::factory()->create();
+
+        $first = $this->actingAs($user)->postJson('/api/me/photo', [
+            'photo' => UploadedFile::fake()->image('me.jpg'),
+        ])->assertOk();
+
+        $firstPath = $user->fresh()->profile_photo;
+        Storage::disk('public')->assertExists($firstPath);
+        $this->assertNotNull($first->json('user.profile_photo_url'));
+
+        $this->actingAs($user)->postJson('/api/me/photo', [
+            'photo' => UploadedFile::fake()->image('me2.jpg'),
+        ])->assertOk();
+
+        Storage::disk('public')->assertMissing($firstPath);
+        Storage::disk('public')->assertExists($user->fresh()->profile_photo);
+    }
+
+    public function test_profile_photo_must_be_an_image(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/me/photo', [
+            'photo' => UploadedFile::fake()->create('doc.pdf', 10, 'application/pdf'),
+        ])->assertStatus(422)->assertJsonValidationErrors('photo');
+    }
+
+    public function test_profile_photo_url_uses_the_host_the_app_called(): void
+    {
+        // APP_URL is often "http://localhost", which a phone on the LAN can't reach.
+        Storage::fake('public');
+        $user = User::factory()->create();
+
+        $url = $this->actingAs($user)
+            ->postJson('http://192.168.1.10:8000/api/me/photo', ['photo' => UploadedFile::fake()->image('me.jpg')])
+            ->assertOk()
+            ->json('user.profile_photo_url');
+
+        $this->assertStringStartsWith('http://192.168.1.10:8000/storage/profile-photos/', $url);
     }
 }

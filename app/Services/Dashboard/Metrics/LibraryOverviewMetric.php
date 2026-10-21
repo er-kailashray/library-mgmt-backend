@@ -17,7 +17,9 @@ class LibraryOverviewMetric implements DashboardMetric
     {
         return [
             'library_name' => $library->library_name,
+            'library_address' => $library->address,
             'owner_name' => $library->user->name,
+            'owner_photo' => $library->user->profile_photo_url,
             'total_seats' => $library->seats()->count(),
             'occupied_seats' => $this->allocations->countOccupiedSeats($library->id),
             'total_members' => $library->members()->where('status', 'active')->count(),

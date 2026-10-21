@@ -82,6 +82,25 @@ class LibraryController extends Controller
         ]);
     }
 
+    public function updateLocation(Request $request)
+    {
+        $library = $this->library($request);
+
+        $validated = $request->validate([
+            'address' => 'required|string|max:500',
+            'latitude' => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+        ]);
+
+        $library->update($validated);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Location updated',
+            'data' => $this->present($library),
+        ]);
+    }
+
     public function uploadPhoto(Request $request)
     {
         $library = $this->library($request);
@@ -129,6 +148,9 @@ class LibraryController extends Controller
             'library_name' => $library->library_name,
             'total_seats' => $library->seats()->count(),
             'amenities' => $library->amenities ?? [],
+            'address' => $library->address,
+            'latitude' => $library->latitude,
+            'longitude' => $library->longitude,
             'photos' => $library->photos()->get()->map(fn (LibraryPhoto $p) => $this->presentPhoto($p))->all(),
         ];
     }
@@ -137,7 +159,7 @@ class LibraryController extends Controller
     {
         return [
             'id' => $photo->id,
-            'url' => Storage::disk('public')->url($photo->path),
+            'url' => asset('storage/'.$photo->path),
         ];
     }
 }

@@ -124,4 +124,27 @@ class LibraryApiTest extends TestCase
 
         $this->actingAs($myOwner)->deleteJson("/api/library/photos/{$stranger->id}")->assertNotFound();
     }
+
+    public function test_can_set_library_location(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/library/location', [
+            'address' => '12 MG Road, Patna',
+            'latitude' => 25.6093239,
+            'longitude' => 85.1235252,
+        ])->assertOk()
+            ->assertJsonPath('data.address', '12 MG Road, Patna')
+            ->assertJsonPath('data.latitude', 25.6093239)
+            ->assertJsonPath('data.longitude', 85.1235252);
+
+        $this->actingAs($this->owner)->getJson('/api/dashboard')
+            ->assertJsonPath('data.library_address', '12 MG Road, Patna');
+    }
+
+    public function test_rejects_location_without_valid_coordinates(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/library/location', [
+            'address' => '12 MG Road, Patna',
+            'latitude' => 120,
+        ])->assertStatus(422)->assertJsonValidationErrors(['latitude', 'longitude']);
+    }
 }

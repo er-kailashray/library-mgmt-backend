@@ -11,10 +11,15 @@ class Library extends Model
         'library_name',
         'total_seats',
         'amenities',
+        'address',
+        'latitude',
+        'longitude',
     ];
 
     protected $casts = [
         'amenities' => 'array',
+        'latitude' => 'float',
+        'longitude' => 'float',
     ];
 
     public function user()

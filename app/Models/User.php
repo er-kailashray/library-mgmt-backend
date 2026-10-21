@@ -24,6 +24,7 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'profile_photo',
     ];
 
     /**
@@ -34,7 +35,10 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'profile_photo',
     ];
+
+    protected $appends = ['profile_photo_url'];
 
     /**
      * Get the attributes that should be cast.
@@ -47,6 +51,11 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function getProfilePhotoUrlAttribute(): ?string
+    {
+        return $this->profile_photo ? asset('storage/'.$this->profile_photo) : null;
     }
 
     public function libraries()
