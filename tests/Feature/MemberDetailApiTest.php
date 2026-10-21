@@ -291,13 +291,16 @@ class MemberDetailApiTest extends TestCase
             ->assertJsonPath('data.seats.0.batches.0.available', true);
     }
 
-    public function test_deactivated_member_disappears_from_members_list(): void
+    public function test_deactivated_member_stays_in_members_list_as_inactive(): void
     {
         $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
 
         $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/deactivate")->assertOk();
 
-        $this->actingAs($this->owner)->getJson('/api/members')->assertJsonCount(0, 'data');
+        $this->actingAs($this->owner)->getJson('/api/members')
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.status', 'inactive')
+            ->assertJsonPath('data.0.active_allocations_count', 0);
     }
 
     public function test_cannot_view_or_deactivate_another_librarys_member(): void

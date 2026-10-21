@@ -78,4 +78,15 @@ class RenewalApiTest extends TestCase
     {
         $this->postJson('/api/renewals/upcoming/remind')->assertUnauthorized();
     }
+
+    public function test_member_renewing_today_is_due_not_upcoming(): void
+    {
+        $this->admit('Renews Today', 1, '2026-10-20');
+
+        $this->actingAs($this->owner)->getJson('/api/renewals/upcoming')
+            ->assertJsonCount(0, 'data.renewals');
+        $this->actingAs($this->owner)->getJson('/api/payments')
+            ->assertJsonPath('data.0.member_name', 'Renews Today')
+            ->assertJsonPath('data.0.status', 'PENDING');
+    }
 }

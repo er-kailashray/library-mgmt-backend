@@ -11,8 +11,8 @@ use Illuminate\Support\Collection;
 
 /**
  * Single source of truth for "who owes what". An active allocation whose
- * renewal_date has passed owes one batch fee per missed billing cycle, less any
- * partial payments the member has already made toward it.
+ * renewal_date has been reached owes one batch fee per missed billing cycle, less
+ * any partial payments the member has already made toward it.
  */
 class MemberDueService
 {
@@ -58,7 +58,8 @@ class MemberDueService
 
         if (! isset($this->upcomingCache[$key])) {
             $byMember = $this->allocations
-                ->renewingBetween($libraryId, $today, $today->copy()->addDays($windowDays))
+                // From tomorrow: anyone renewing today is already due, so overdueMembers() covers them.
+                ->renewingBetween($libraryId, $today->copy()->addDay(), $today->copy()->addDays($windowDays))
                 ->groupBy('member_id');
             $credits = $this->payments->unsettledPartialTotals($byMember->keys()->all());
 

@@ -23,9 +23,10 @@ class DuesMetric implements DashboardMetric
         $criticalAfterDays = (int) config('library.dues.critical_after_days');
         $longOverdueCycles = (int) config('library.dues.long_overdue_cycles');
 
+        // From tomorrow, matching MemberDueService::upcomingRenewals() - renewing today already counts as due.
         $upcomingRenewals = $this->allocations->countMembersRenewingBetween(
             $library->id,
-            $today,
+            $today->copy()->addDay(),
             $today->copy()->addDays((int) config('library.dues.upcoming_renewal_window_days')),
         );
 

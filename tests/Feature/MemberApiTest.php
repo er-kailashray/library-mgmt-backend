@@ -3,11 +3,12 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsLibrary;
 use Tests\TestCase;
 
 class MemberApiTest extends TestCase
 {
-    use RefreshDatabase;
+    use BuildsLibrary, RefreshDatabase;
 
     public function test_can_list_members_with_payment_status(): void
     {
@@ -85,5 +86,24 @@ class MemberApiTest extends TestCase
                 'name' => 'Jane Due',
                 'payment_status' => 'Due',
             ]);
+    }
+
+    public function test_member_list_includes_inactive_members_after_active_ones(): void
+    {
+        $this->createLibrary(seats: 3);
+        $left = $this->admit('Left Member', 1, '2026-11-01');
+        $left->update(['status' => 'inactive', 'outstanding_balance' => 500]);
+        $left->allocations()->update(['status' => 'ended']);
+        $this->admit('Current Member', 2, '2026-11-01');
+
+        $this->actingAs($this->owner)->getJson('/api/members')
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.name', 'Current Member')
+            ->assertJsonPath('data.0.status', 'active')
+            ->assertJsonPath('data.1.name', 'Left Member')
+            ->assertJsonPath('data.1.status', 'inactive')
+            ->assertJsonPath('data.1.outstanding_balance', 500)
+            ->assertJsonPath('data.1.active_allocations_count', 0);
     }
 }

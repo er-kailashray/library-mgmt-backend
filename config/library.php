@@ -7,8 +7,8 @@ return [
     | Dues
     |--------------------------------------------------------------------------
     |
-    | A member is "overdue" once an active seat allocation's renewal_date has
-    | passed. These thresholds drive the dashboard's due breakdowns.
+    | A member is due once an active seat allocation's renewal_date is reached
+    | (on the day itself). These thresholds drive the dashboard's due breakdowns.
     |
     */
 

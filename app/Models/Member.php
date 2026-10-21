@@ -13,9 +13,14 @@ class Member extends Model
         'gender',
         'join_date',
         'status',
+        'outstanding_balance',
         'id_proof_type',
         'id_proof_front_path',
         'id_proof_back_path',
+    ];
+
+    protected $casts = [
+        'outstanding_balance' => 'float',
     ];
 
     // Internal storage paths - never meant to reach the client directly, which

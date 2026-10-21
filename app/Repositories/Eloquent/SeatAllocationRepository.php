@@ -26,7 +26,8 @@ class SeatAllocationRepository implements SeatAllocationRepositoryInterface
     public function overdue(int $libraryId, CarbonInterface $today): Collection
     {
         return $this->active($libraryId)
-            ->where('renewal_date', '<', $today->toDateString())
+            // Due on the renewal date itself, not the day after - e.g. a "pay later" admission is due from day one.
+            ->where('renewal_date', '<=', $today->toDateString())
             ->with(['member', 'batch'])
             ->get();
     }

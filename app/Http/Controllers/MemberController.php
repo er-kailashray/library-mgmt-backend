@@ -37,8 +37,10 @@ class MemberController extends Controller
             ], 404);
         }
 
+        // Everyone, including members who left (so they can be found and readmitted); active first.
         $members = Member::where('library_id', $library->id)
-            ->where('status', 'active')
+            ->orderByRaw("status = 'active' desc")
+            ->orderBy('id')
             ->with(['allocations' => function ($query) use ($library) {
                 $query->where('library_id', $library->id)
                     ->where('status', 'active');
@@ -48,15 +50,17 @@ class MemberController extends Controller
         $data = $members->map(function ($member) {
             // Determine payment status
             $isDue = $member->allocations->contains(function ($allocation) {
-                return $allocation->renewal_date < now()->toDateString();
+                return $allocation->renewal_date <= now()->toDateString();
             });
 
             return [
                 'id' => $member->id,
                 'name' => $member->name,
                 'phone' => $member->phone,
+                'status' => $member->status,
                 'payment_status' => $isDue ? 'Due' : 'Paid',
                 'active_allocations_count' => $member->allocations->count(),
+                'outstanding_balance' => $member->outstanding_balance,
             ];
         });
 
@@ -79,6 +83,9 @@ class MemberController extends Controller
             'payment' => 'nullable|array',
             'payment.amount' => 'required_with:payment|numeric|gt:0',
             'payment.payment_mode' => ['nullable', Rule::in(array_keys(config('library.payment_modes')))],
+            // Readmitting someone who left owing money: how much of it is collected now (0 = waive all).
+            'previous_dues_paid' => 'nullable|numeric|min:0',
+            'previous_dues_mode' => ['nullable', Rule::in(array_keys(config('library.payment_modes')))],
         ]);
 
         $library = auth()->user()->libraries()->first();
@@ -160,7 +167,45 @@ class MemberController extends Controller
                     ], 422);
                 }
 
-                $member->update(['name' => $request->name, 'gender' => $request->gender ?? $member->gender, 'status' => 'active']);
+                if ($member->outstanding_balance > 0) {
+                    $outstanding = $member->outstanding_balance;
+                    $collected = $request->input('previous_dues_paid');
+
+                    if ($collected === null) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => "{$member->name} left with ₹".number_format($outstanding).' pending - choose to collect it or waive it.',
+                        ], 422);
+                    }
+
+                    if ((float) $collected > $outstanding) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'Previous dues collected can\'t be more than ₹'.number_format($outstanding).'.',
+                        ], 422);
+                    }
+
+                    // Recorded before the admission payment so it doesn't count toward the new cycle.
+                    if ((float) $collected > 0) {
+                        $waived = $outstanding - (float) $collected;
+                        Payment::create([
+                            'library_id' => $library->id,
+                            'member_id' => $member->id,
+                            'amount' => (float) $collected,
+                            'status' => PaymentStatus::Paid,
+                            'payment_date' => now()->toDateString(),
+                            'payment_mode' => $request->input('previous_dues_mode'),
+                            'notes' => 'Previous dues settled'.($waived > 0 ? ' (₹'.number_format($waived).' waived)' : ''),
+                        ]);
+                    }
+                }
+
+                $member->update([
+                    'name' => $request->name,
+                    'gender' => $request->gender ?? $member->gender,
+                    'status' => 'active',
+                    'outstanding_balance' => 0,
+                ]);
             } else {
                 $member = Member::create([
                     'library_id' => $library->id,
@@ -175,7 +220,7 @@ class MemberController extends Controller
             // the member is due from today, so unpaid / part-paid admissions show up in dues straight away.
             $paidAmount = (float) $request->input('payment.amount', 0);
             $fullyPaid = $paidAmount >= $monthlyFee;
-            $renewalDate = $fullyPaid ? now()->addMonthNoOverflow() : now();
+            $renewalDate = ($fullyPaid ? now()->addMonthNoOverflow() : now())->toDateString();
 
             if ($request->filled('payment')) {
                 Payment::create([
@@ -196,7 +241,7 @@ class MemberController extends Controller
                     'member_id' => $member->id,
                     'batch_id' => $allocation['batch_id'],
                     'seat_id' => $allocation['seat_id'],
-                    'start_date' => now(),
+                    'start_date' => now()->toDateString(),
                     'renewal_date' => $renewalDate,
                     'status' => 'active',
                 ]);
@@ -237,6 +282,8 @@ class MemberController extends Controller
                 'status' => $member->status,
                 'payment_status' => $due ? 'Due' : 'Paid',
                 'due_amount' => $due?->amount,
+                // Owed when they left (inactive members only); settled on readmission.
+                'outstanding_balance' => $member->outstanding_balance,
                 'monthly_fee' => $monthlyFee,
                 // Pre-fills "Record Payment / Renew"; null for members with no active seat.
                 'suggested_payment' => $member->allocations->isEmpty() ? null : $this->payments->suggestedRenewalAmount($member, $monthlyFee, $due),
@@ -374,8 +421,11 @@ class MemberController extends Controller
             return response()->json(['status' => false, 'message' => 'Member not found'], 404);
         }
 
-        DB::transaction(function () use ($member) {
-            $member->update(['status' => 'inactive']);
+        // Ended seats stop accruing dues, so freeze what's owed now; it's settled if they're readmitted.
+        $owed = $this->dues->overdueMembers($member->library_id, now())->get($member->id)?->amount ?? 0.0;
+
+        DB::transaction(function () use ($member, $owed) {
+            $member->update(['status' => 'inactive', 'outstanding_balance' => $owed]);
             $member->allocations()->where('status', 'active')->update(['status' => 'ended']);
         });
 

@@ -239,15 +239,110 @@ class AdmissionApiTest extends TestCase
     {
         $this->admitWith(['amount' => 400, 'payment_mode' => 'cash']);
 
-        // Renewal is today, so the member shows under upcoming renewals for the remaining 600.
-        $this->actingAs($this->owner)->getJson('/api/renewals/upcoming')
-            ->assertJsonCount(1, 'data.renewals')
-            ->assertJsonPath('data.renewals.0.amount', 600);
-
-        // Once it lapses it's overdue - still for 600, not the full fee.
-        $this->travelTo(Carbon::create(2026, 10, 23));
+        // Due from day one for the remaining 600 - not the full fee, and not "renewing soon".
         $this->actingAs($this->owner)->getJson('/api/payments')
             ->assertJsonPath('data.0.status', 'PENDING')
             ->assertJsonPath('data.0.amount', 600);
+        $this->actingAs($this->owner)->getJson('/api/renewals/upcoming')
+            ->assertJsonCount(0, 'data.renewals');
+    }
+
+    public function test_pay_later_member_shows_as_due_on_the_day_they_join(): void
+    {
+        $member = $this->admitWith(null);
+
+        $this->actingAs($this->owner)->getJson('/api/members')
+            ->assertJsonPath('data.0.payment_status', 'Due');
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.payment_status', 'Due')
+            ->assertJsonPath('data.due_amount', 1000)
+            ->assertJsonPath('data.suggested_payment', 1000);
+    }
+
+    public function test_fully_paid_admission_is_not_due(): void
+    {
+        $member = $this->admitWith(['amount' => 1000, 'payment_mode' => 'cash']);
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.payment_status', 'Paid')
+            ->assertJsonPath('data.due_amount', null);
+    }
+
+    /** A member who fell a month behind (fee 1000) and was then marked as left. */
+    private function memberWhoLeftOwing(): Member
+    {
+        $this->travelTo(Carbon::create(2026, 10, 22));
+        $member = $this->admit('Rahul Sharma', 1, '2026-10-10');
+
+        $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/deactivate")->assertOk();
+
+        return $member->fresh();
+    }
+
+    private function readmit(Member $member, array $extra = []): \Illuminate\Testing\TestResponse
+    {
+        return $this->actingAs($this->owner)->postJson('/api/admission', [
+            'name' => $member->name,
+            'phone' => $member->phone,
+            'allocations' => [['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(2)]],
+            'payment' => ['amount' => 1000, 'payment_mode' => 'cash'],
+        ] + $extra);
+    }
+
+    public function test_leaving_keeps_what_the_member_owed(): void
+    {
+        $member = $this->memberWhoLeftOwing();
+
+        $this->assertSame('inactive', $member->status);
+        $this->assertSame(1000.0, $member->outstanding_balance);
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.outstanding_balance', 1000);
+    }
+
+    public function test_readmission_requires_a_decision_on_previous_dues(): void
+    {
+        $member = $this->memberWhoLeftOwing();
+
+        $this->readmit($member)->assertStatus(422);
+        $this->assertSame('inactive', $member->fresh()->status);
+    }
+
+    public function test_readmission_can_settle_previous_dues_partly_and_waive_the_rest(): void
+    {
+        $member = $this->memberWhoLeftOwing();
+
+        $this->readmit($member, ['previous_dues_paid' => 300, 'previous_dues_mode' => 'upi'])->assertOk();
+
+        $member->refresh();
+        $this->assertSame('active', $member->status);
+        $this->assertSame(0.0, $member->outstanding_balance);
+
+        $settlement = Payment::where('member_id', $member->id)->orderBy('id')->first();
+        $this->assertSame(300.0, $settlement->amount);
+        $this->assertSame('upi', $settlement->payment_mode);
+        $this->assertSame('Previous dues settled (₹700 waived)', $settlement->notes);
+
+        // The new admission's own full payment still covers its first month.
+        $this->assertSame(2, Payment::where('member_id', $member->id)->count());
+        $this->assertStringStartsWith('2026-11-22', $member->allocations()->where('status', 'active')->first()->renewal_date);
+    }
+
+    public function test_readmission_can_waive_previous_dues(): void
+    {
+        $member = $this->memberWhoLeftOwing();
+
+        $this->readmit($member, ['previous_dues_paid' => 0])->assertOk();
+
+        $this->assertSame(0.0, $member->fresh()->outstanding_balance);
+        // Only the new admission payment - nothing recorded for the waived dues.
+        $this->assertSame(1, Payment::where('member_id', $member->id)->count());
+    }
+
+    public function test_cannot_collect_more_than_the_previous_dues(): void
+    {
+        $member = $this->memberWhoLeftOwing();
+
+        $this->readmit($member, ['previous_dues_paid' => 1500])->assertStatus(422);
+        $this->assertSame(1000.0, $member->fresh()->outstanding_balance);
     }
 }
