@@ -93,4 +93,48 @@ class PaymentApiTest extends TestCase
             'payment_date' => '2026-12-01',
         ])->assertUnprocessable()->assertJsonValidationErrors(['amount', 'payment_mode', 'payment_date']);
     }
+
+    public function test_partial_payment_reduces_the_pending_due(): void
+    {
+        $member = $this->admit('Due Member', 1, '2026-10-10');
+
+        $this->actingAs($this->owner)->postJson('/api/payments', [
+            'member_id' => $member->id,
+            'amount' => 500,
+        ])->assertCreated();
+
+        $this->actingAs($this->owner)->getJson('/api/payments')
+            ->assertJsonPath('data.0.status', 'PENDING')
+            ->assertJsonPath('data.0.amount', 1000);
+    }
+
+    public function test_partial_payments_that_add_up_to_the_fee_settle_the_month(): void
+    {
+        $member = $this->admit('Due Member', 1, '2026-10-10');
+
+        $this->actingAs($this->owner)->postJson('/api/payments', ['member_id' => $member->id, 'amount' => 500])
+            ->assertJsonPath('data.status', 'PARTIAL');
+        $this->actingAs($this->owner)->postJson('/api/payments', ['member_id' => $member->id, 'amount' => 1000])
+            ->assertJsonPath('data.status', 'PAID');
+
+        $this->assertSame('2026-11-10', SeatAllocation::where('member_id', $member->id)->value('renewal_date'));
+
+        // Settled - no pending row left, only the two recorded payments.
+        $this->actingAs($this->owner)->getJson('/api/payments')->assertJsonCount(2, 'data');
+
+        // The next month starts fresh: earlier partials don't carry over.
+        $this->actingAs($this->owner)->postJson('/api/payments', ['member_id' => $member->id, 'amount' => 500])
+            ->assertJsonPath('data.status', 'PARTIAL');
+    }
+
+    public function test_paying_several_overdue_months_extends_renewal_by_each_month(): void
+    {
+        // Renewed on Aug 10, checked on Oct 20: Aug, Sep and Oct are all missed.
+        $member = $this->admit('Due Member', 1, '2026-08-10');
+
+        $this->actingAs($this->owner)->postJson('/api/payments', ['member_id' => $member->id, 'amount' => 3000])
+            ->assertJsonPath('data.status', 'PAID');
+
+        $this->assertSame('2026-10-10', SeatAllocation::where('member_id', $member->id)->value('renewal_date'));
+    }
 }

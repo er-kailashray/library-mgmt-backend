@@ -3,6 +3,7 @@
 namespace App\Services\Dues;
 
 use App\Models\SeatAllocation;
+use App\Repositories\Contracts\PaymentRepositoryInterface;
 use App\Repositories\Contracts\SeatAllocationRepositoryInterface;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -10,7 +11,8 @@ use Illuminate\Support\Collection;
 
 /**
  * Single source of truth for "who owes what". An active allocation whose
- * renewal_date has passed owes one batch fee per missed billing cycle.
+ * renewal_date has passed owes one batch fee per missed billing cycle, less any
+ * partial payments the member has already made toward it.
  */
 class MemberDueService
 {
@@ -22,6 +24,7 @@ class MemberDueService
 
     public function __construct(
         private readonly SeatAllocationRepositoryInterface $allocations,
+        private readonly PaymentRepositoryInterface $payments,
     ) {}
 
     /**
@@ -31,9 +34,16 @@ class MemberDueService
     {
         $key = $libraryId.'|'.$today->toDateString();
 
-        return $this->cache[$key] ??= $this->allocations->overdue($libraryId, $today)
-            ->groupBy('member_id')
-            ->map(fn (Collection $memberAllocations) => $this->summarise($memberAllocations, $today));
+        if (! isset($this->cache[$key])) {
+            $byMember = $this->allocations->overdue($libraryId, $today)->groupBy('member_id');
+            $credits = $this->payments->unsettledPartialTotals($byMember->keys()->all());
+
+            $this->cache[$key] = $byMember->map(
+                fn (Collection $memberAllocations, int $memberId) => $this->summarise($memberAllocations, $today, $credits->get($memberId, 0.0))
+            );
+        }
+
+        return $this->cache[$key];
     }
 
     /**
@@ -46,16 +56,24 @@ class MemberDueService
     {
         $key = $libraryId.'|'.$today->toDateString().'|'.$windowDays;
 
-        return $this->upcomingCache[$key] ??= $this->allocations
-            ->renewingBetween($libraryId, $today, $today->copy()->addDays($windowDays))
-            ->groupBy('member_id')
-            ->map(fn (Collection $memberAllocations) => $this->summariseUpcoming($memberAllocations, $today));
+        if (! isset($this->upcomingCache[$key])) {
+            $byMember = $this->allocations
+                ->renewingBetween($libraryId, $today, $today->copy()->addDays($windowDays))
+                ->groupBy('member_id');
+            $credits = $this->payments->unsettledPartialTotals($byMember->keys()->all());
+
+            $this->upcomingCache[$key] = $byMember->map(
+                fn (Collection $memberAllocations, int $memberId) => $this->summariseUpcoming($memberAllocations, $today, $credits->get($memberId, 0.0))
+            );
+        }
+
+        return $this->upcomingCache[$key];
     }
 
     /**
      * @param  Collection<int, SeatAllocation>  $memberAllocations
      */
-    private function summarise(Collection $memberAllocations, CarbonInterface $today): MemberDue
+    private function summarise(Collection $memberAllocations, CarbonInterface $today, float $partialCredit): MemberDue
     {
         $amount = 0.0;
         $maxCycles = 0;
@@ -75,7 +93,7 @@ class MemberDueService
         return new MemberDue(
             memberId: $member->id,
             memberName: $member->name,
-            amount: $amount,
+            amount: max(0.0, $amount - $partialCredit),
             oldestRenewalDate: $oldest,
             daysOverdue: (int) $oldest->diffInDays($today->copy()->startOfDay()),
             cyclesOverdue: $maxCycles,
@@ -93,7 +111,7 @@ class MemberDueService
     /**
      * @param  Collection<int, SeatAllocation>  $memberAllocations
      */
-    private function summariseUpcoming(Collection $memberAllocations, CarbonInterface $today): UpcomingRenewal
+    private function summariseUpcoming(Collection $memberAllocations, CarbonInterface $today, float $partialCredit): UpcomingRenewal
     {
         $amount = 0.0;
         $nearest = null;
@@ -110,7 +128,7 @@ class MemberDueService
             memberId: $member->id,
             memberName: $member->name,
             memberPhone: $member->phone,
-            amount: $amount,
+            amount: max(0.0, $amount - $partialCredit),
             renewalDate: $nearest,
             daysUntilRenewal: (int) $today->copy()->startOfDay()->diffInDays($nearest),
         );

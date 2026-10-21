@@ -4,6 +4,7 @@ namespace App\Services\Payments;
 
 use App\Enums\PaymentStatus;
 use App\Models\Library;
+use App\Models\Member;
 use App\Models\Payment;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
 use App\Repositories\Contracts\SeatAllocationRepositoryInterface;
@@ -49,9 +50,9 @@ class PaymentService
     }
 
     /**
-     * Records a payment. A payment covering the member's full monthly fee is
-     * PAID and pushes their renewal dates forward one cycle; anything less is
-     * PARTIAL and leaves renewal dates untouched.
+     * Records a payment. Together with any earlier partial payments, each full monthly fee it
+     * covers pushes renewal dates forward one cycle (so paying two overdue months clears both)
+     * and makes it PAID; anything short of one fee is PARTIAL and leaves renewal dates untouched.
      */
     public function record(Library $library, array $data): Payment
     {
@@ -59,7 +60,10 @@ class PaymentService
             $monthlyFee = (float) $this->allocations->activeForMember($data['member_id'])
                 ->sum(fn ($allocation) => $allocation->batch->monthly_fee);
 
-            $status = $data['amount'] >= $monthlyFee ? PaymentStatus::Paid : PaymentStatus::Partial;
+            // Earlier partial payments count toward this cycle, so 400 + 600 against a 1000 fee settles it.
+            $alreadyPaid = $this->payments->unsettledPartialTotals([$data['member_id']])->get($data['member_id'], 0.0);
+            $monthsCovered = $monthlyFee > 0 ? (int) floor(($data['amount'] + $alreadyPaid) / $monthlyFee) : 1;
+            $status = $monthsCovered >= 1 ? PaymentStatus::Paid : PaymentStatus::Partial;
 
             $payment = $this->payments->create([
                 'library_id' => $library->id,
@@ -71,12 +75,42 @@ class PaymentService
                 'notes' => $data['notes'] ?? null,
             ]);
 
-            if ($status === PaymentStatus::Paid) {
-                $this->allocations->extendRenewalDates($data['member_id'], 1);
+            if ($monthsCovered >= 1) {
+                $this->allocations->extendRenewalDates($data['member_id'], $monthsCovered);
             }
 
             return $payment->load('member');
         });
+    }
+
+    /**
+     * One member's payments, newest first, in the same shape as the library-wide list.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function historyForMember(Member $member): array
+    {
+        return $member->payments()
+            ->orderByDesc('payment_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (Payment $payment) => $this->present($payment->setRelation('member', $member)))
+            ->all();
+    }
+
+    /**
+     * What to collect to renew a member right now: their overdue amount if they're behind,
+     * otherwise next month's fee less anything already paid toward it.
+     */
+    public function suggestedRenewalAmount(Member $member, float $monthlyFee, ?MemberDue $due): float
+    {
+        if ($due) {
+            return $due->amount;
+        }
+
+        $alreadyPaid = $this->payments->unsettledPartialTotals([$member->id])->get($member->id, 0.0);
+
+        return max(0.0, $monthlyFee - $alreadyPaid);
     }
 
     /**

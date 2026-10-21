@@ -317,4 +317,96 @@ class MemberDetailApiTest extends TestCase
 
         $this->getJson("/api/members/{$member->id}")->assertUnauthorized();
     }
+
+    public function test_member_detail_includes_payment_history_newest_first(): void
+    {
+        $this->travelTo('2026-10-20 10:00:00');
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+        $this->recordPayment($member, 1000, '2026-09-01');
+        $this->recordPayment($member, 400, '2026-10-01', 'partial');
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.monthly_fee', 1000)
+            ->assertJsonCount(2, 'data.payments')
+            ->assertJsonPath('data.payments.0.amount', 400)
+            ->assertJsonPath('data.payments.0.status', 'PARTIAL')
+            ->assertJsonPath('data.payments.0.date', '2026-10-01')
+            ->assertJsonPath('data.payments.1.status', 'PAID')
+            ->assertJsonPath('data.payments.1.method', 'UPI')
+            // Not overdue: suggest next month's fee less the 400 already paid toward it.
+            ->assertJsonPath('data.suggested_payment', 600);
+    }
+
+    public function test_suggested_payment_for_an_overdue_member_is_what_they_owe(): void
+    {
+        $this->travelTo('2026-10-20 10:00:00');
+        // Renewed on Sep 15, so Sep 15 and Oct 15 are both missed.
+        $member = $this->admit('Rahul Sharma', 1, '2026-09-15');
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.due_amount', 2000)
+            ->assertJsonPath('data.suggested_payment', 2000);
+    }
+
+    public function test_member_without_an_active_seat_has_no_suggested_payment(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+        $member->allocations()->update(['status' => 'ended']);
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.suggested_payment', null)
+            ->assertJsonCount(0, 'data.payments');
+    }
+
+    private function uploadIdProof(int $memberId, string $side, string $type = 'aadhaar'): void
+    {
+        $this->actingAs($this->owner)->postJson("/api/members/{$memberId}/id-proof", [
+            'id_proof_type' => $type,
+            'side' => $side,
+            'id_proof' => UploadedFile::fake()->image("{$side}.jpg"),
+        ])->assertOk();
+    }
+
+    public function test_can_remove_the_whole_id_proof(): void
+    {
+        Storage::fake('local');
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+        $this->uploadIdProof($member->id, 'front');
+        $this->uploadIdProof($member->id, 'back');
+        $paths = [$member->fresh()->id_proof_front_path, $member->fresh()->id_proof_back_path];
+
+        $this->actingAs($this->owner)->deleteJson("/api/members/{$member->id}/id-proof")->assertOk();
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.has_id_proof_front', false)
+            ->assertJsonPath('data.has_id_proof_back', false)
+            ->assertJsonPath('data.id_proof_type', null);
+        foreach ($paths as $path) {
+            Storage::disk('local')->assertMissing($path);
+        }
+    }
+
+    public function test_can_remove_just_the_back_side(): void
+    {
+        Storage::fake('local');
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+        $this->uploadIdProof($member->id, 'front');
+        $this->uploadIdProof($member->id, 'back');
+
+        $this->actingAs($this->owner)->deleteJson("/api/members/{$member->id}/id-proof/back")->assertOk();
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.has_id_proof_front', true)
+            ->assertJsonPath('data.has_id_proof_back', false)
+            ->assertJsonPath('data.id_proof_type', 'aadhaar');
+    }
+
+    public function test_cannot_remove_another_librarys_member_id_proof(): void
+    {
+        $myOwner = $this->owner;
+        $this->createLibrary();
+        $stranger = $this->admit('Other Library', 1, '2026-11-01');
+
+        $this->actingAs($myOwner)->deleteJson("/api/members/{$stranger->id}/id-proof")->assertNotFound();
+    }
 }

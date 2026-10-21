@@ -35,6 +35,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/members/{id}/update', [MemberController::class, 'update']);
         Route::get('/members/{id}/id-proof/{side}', [MemberController::class, 'idProof']);
         Route::post('/members/{id}/id-proof', [MemberController::class, 'updateIdProof']);
+        Route::delete('/members/{id}/id-proof/{side?}', [MemberController::class, 'deleteIdProof']);
         Route::post('/members/{id}/deactivate', [MemberController::class, 'deactivate']);
         Route::post('/members/{id}/remind', [MemberController::class, 'remind']);
         Route::post('/reminders/overdue', [ReminderController::class, 'overdue']);

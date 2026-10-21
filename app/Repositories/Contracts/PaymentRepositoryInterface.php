@@ -27,5 +27,14 @@ interface PaymentRepositoryInterface
      */
     public function allForLibrary(int $libraryId): Collection;
 
+    /**
+     * Partial payments each member has made since their last full ("paid") payment - money already
+     * received toward the cycle that's still open, so it should come off what they owe.
+     *
+     * @param  array<int, int>  $memberIds
+     * @return Collection<int, float> keyed by member id; members with no such payments are omitted
+     */
+    public function unsettledPartialTotals(array $memberIds): Collection;
+
     public function create(array $attributes): Payment;
 }

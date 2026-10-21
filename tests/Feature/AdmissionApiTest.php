@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Enums\PaymentStatus;
 use App\Models\Batch;
 use App\Models\Member;
+use App\Models\Payment;
 use App\Models\Seat;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -48,6 +50,7 @@ class AdmissionApiTest extends TestCase
             'allocations' => [
                 ['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)],
             ],
+            'payment' => ['amount' => 1000, 'payment_mode' => 'cash'],
         ])->assertOk();
 
         $member = Member::where('phone', '9876543210')->first();
@@ -171,5 +174,80 @@ class AdmissionApiTest extends TestCase
         $this->assertNull($member->id_proof_type);
         $this->assertNull($member->id_proof_front_path);
         $this->assertNull($member->id_proof_back_path);
+    }
+
+    private function admitWith(?array $payment): Member
+    {
+        $this->travelTo(Carbon::create(2026, 10, 22));
+
+        $this->actingAs($this->owner)->postJson('/api/admission', array_filter([
+            'name' => 'Rahul Sharma',
+            'phone' => '9876543210',
+            'allocations' => [
+                ['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)],
+            ],
+            'payment' => $payment,
+        ]))->assertOk();
+
+        return Member::where('phone', '9876543210')->first();
+    }
+
+    public function test_full_payment_at_admission_is_recorded_and_covers_first_month(): void
+    {
+        $member = $this->admitWith(['amount' => 1000, 'payment_mode' => 'upi']);
+
+        $payment = Payment::where('member_id', $member->id)->sole();
+        $this->assertSame(1000.0, $payment->amount);
+        $this->assertSame(PaymentStatus::Paid, $payment->status);
+        $this->assertSame('upi', $payment->payment_mode);
+        $this->assertSame('2026-10-22', $payment->payment_date->toDateString());
+        // Paid through one month - not extended a second time by the payment.
+        $this->assertStringStartsWith('2026-11-22', $member->allocations()->first()->renewal_date);
+    }
+
+    public function test_partial_payment_at_admission_leaves_member_due_today(): void
+    {
+        $member = $this->admitWith(['amount' => 400, 'payment_mode' => 'cash']);
+
+        $this->assertSame(PaymentStatus::Partial, Payment::where('member_id', $member->id)->sole()->status);
+        $this->assertStringStartsWith('2026-10-22', $member->allocations()->first()->renewal_date);
+    }
+
+    public function test_pay_later_admission_records_no_payment_and_is_due_today(): void
+    {
+        $member = $this->admitWith(null);
+
+        $this->assertSame(0, Payment::where('member_id', $member->id)->count());
+        $this->assertStringStartsWith('2026-10-22', $member->allocations()->first()->renewal_date);
+    }
+
+    public function test_rejects_invalid_admission_payment(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/admission', [
+            'name' => 'Rahul Sharma',
+            'phone' => '9876543210',
+            'allocations' => [
+                ['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)],
+            ],
+            'payment' => ['amount' => 0, 'payment_mode' => 'cheque'],
+        ])->assertStatus(422)->assertJsonValidationErrors(['payment.amount', 'payment.payment_mode']);
+
+        $this->assertSame(0, Member::count());
+    }
+
+    public function test_partial_admission_payment_is_deducted_from_what_is_owed(): void
+    {
+        $this->admitWith(['amount' => 400, 'payment_mode' => 'cash']);
+
+        // Renewal is today, so the member shows under upcoming renewals for the remaining 600.
+        $this->actingAs($this->owner)->getJson('/api/renewals/upcoming')
+            ->assertJsonCount(1, 'data.renewals')
+            ->assertJsonPath('data.renewals.0.amount', 600);
+
+        // Once it lapses it's overdue - still for 600, not the full fee.
+        $this->travelTo(Carbon::create(2026, 10, 23));
+        $this->actingAs($this->owner)->getJson('/api/payments')
+            ->assertJsonPath('data.0.status', 'PENDING')
+            ->assertJsonPath('data.0.amount', 600);
     }
 }
