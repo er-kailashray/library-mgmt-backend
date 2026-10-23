@@ -32,6 +32,22 @@ class DuesMetric implements DashboardMetric
 
         return [
             'due_members_count' => $overdue->count(),
+            'due_total' => (float) $overdue->sum(fn (MemberDue $due) => $due->amount),
+            // The few most urgent, so Home can name them instead of only counting them.
+            'top_dues' => $overdue
+                ->sortBy([
+                    fn (MemberDue $a, MemberDue $b) => $b->daysOverdue <=> $a->daysOverdue,
+                    fn (MemberDue $a, MemberDue $b) => $b->amount <=> $a->amount,
+                ])
+                ->take((int) config('library.dashboard.top_dues_limit'))
+                ->map(fn (MemberDue $due) => [
+                    'member_id' => $due->memberId,
+                    'name' => $due->memberName,
+                    'amount' => $due->amount,
+                    'days_overdue' => $due->daysOverdue,
+                ])
+                ->values()
+                ->all(),
             'critical_dues_count' => $overdue->filter(fn (MemberDue $due) => $due->daysOverdue >= $criticalAfterDays)->count(),
             'this_month_dues_count' => $overdue->filter(fn (MemberDue $due) => $due->oldestRenewalDate->isSameMonth($today))->count(),
             'upcoming_renewals' => $upcomingRenewals,

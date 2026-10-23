@@ -26,7 +26,7 @@ class DashboardApiTest extends TestCase
             ->assertJsonStructure(['data' => [
                 'library_name', 'owner_name', 'total_seats', 'occupied_seats', 'total_members',
                 'monthly_collection', 'pending_collection', 'today_collection', 'expected_collection',
-                'due_members_count', 'critical_dues_count', 'this_month_dues_count', 'upcoming_renewals',
+                'due_members_count', 'due_total', 'top_dues', 'critical_dues_count', 'this_month_dues_count', 'upcoming_renewals',
                 'overdue_summary' => ['two_months_plus', 'one_month', 'due_this_week'],
                 'recent_payments',
             ]])
@@ -94,5 +94,25 @@ class DashboardApiTest extends TestCase
         $this->actingAs($myOwner)->getJson('/api/dashboard')
             ->assertJsonPath('data.due_members_count', 1)
             ->assertJsonPath('data.total_members', 1);
+    }
+
+    public function test_dashboard_names_the_most_overdue_members_first(): void
+    {
+        $this->admit('Due Today', 1, '2026-10-20');
+        $this->admit('Long Overdue', 2, '2026-08-25');
+        $this->admit('Bit Late', 3, '2026-10-10');
+        $this->admit('Paid Up', 4, '2026-11-15');
+        $this->admit('Also Late', 5, '2026-10-12');
+
+        $this->actingAs($this->owner)->getJson('/api/dashboard')
+            ->assertJsonPath('data.due_members_count', 4)
+            // Aug 25 -> 2 missed cycles (2000); the other three owe one fee each.
+            ->assertJsonPath('data.due_total', 5000)
+            ->assertJsonCount(3, 'data.top_dues')
+            ->assertJsonPath('data.top_dues.0.name', 'Long Overdue')
+            ->assertJsonPath('data.top_dues.0.amount', 2000)
+            ->assertJsonPath('data.top_dues.1.name', 'Bit Late')
+            ->assertJsonPath('data.top_dues.1.days_overdue', 10)
+            ->assertJsonPath('data.top_dues.2.name', 'Also Late');
     }
 }

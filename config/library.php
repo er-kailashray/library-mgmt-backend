@@ -31,6 +31,9 @@ return [
 
     'dashboard' => [
         'recent_payments_limit' => 5,
+
+        // Most-overdue members named on the dashboard's dues card
+        'top_dues_limit' => 3,
     ],
 
     /*
