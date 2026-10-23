@@ -10,6 +10,7 @@ use App\Models\Payment;
 use App\Models\Seat;
 use App\Models\SeatAllocation;
 use App\Services\Dues\MemberDueService;
+use App\Services\Dues\MonthlyFeeService;
 use App\Services\Payments\PaymentService;
 use App\Services\Reminders\ReminderService;
 use Illuminate\Http\Request;
@@ -195,7 +196,7 @@ class MemberController extends Controller
                             'status' => PaymentStatus::Paid,
                             'payment_date' => now()->toDateString(),
                             'payment_mode' => $request->input('previous_dues_mode'),
-                            'notes' => 'Previous dues settled'.($waived > 0 ? ' (₹'.number_format($waived).' waived)' : ''),
+                            'notes' => MonthlyFeeService::SETTLEMENT_NOTE.($waived > 0 ? ' (₹'.number_format($waived).' waived)' : ''),
                         ]);
                     }
                 }

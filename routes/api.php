@@ -29,6 +29,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('library')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'dashboard']);
+        Route::get('/collections', [DashboardController::class, 'collections']);
         Route::get('/payments', [PaymentController::class, 'index']);
         Route::post('/payments', [PaymentController::class, 'store']);
         Route::get('/members/{id}', [MemberController::class, 'show']);

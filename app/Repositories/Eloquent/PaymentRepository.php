@@ -18,6 +18,14 @@ class PaymentRepository implements PaymentRepositoryInterface
             ->sum('amount');
     }
 
+    public function countBetween(int $libraryId, CarbonInterface $from, CarbonInterface $to): int
+    {
+        return Payment::where('library_id', $libraryId)
+            ->whereDate('payment_date', '>=', $from->toDateString())
+            ->whereDate('payment_date', '<=', $to->toDateString())
+            ->count();
+    }
+
     public function recent(int $libraryId, int $limit): Collection
     {
         return Payment::where('library_id', $libraryId)

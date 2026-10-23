@@ -14,6 +14,11 @@ interface PaymentRepositoryInterface
     public function sumBetween(int $libraryId, CarbonInterface $from, CarbonInterface $to): float;
 
     /**
+     * Number of payments with payment_date within [$from, $to].
+     */
+    public function countBetween(int $libraryId, CarbonInterface $from, CarbonInterface $to): int;
+
+    /**
      * Most recently recorded payments, with member and the member's seats loaded.
      *
      * @return Collection<int, Payment>
