@@ -35,6 +35,13 @@ return [
         ],
     ],
 
+    // Subscription payments. Keys come from Razorpay Dashboard -> Settings -> API Keys / Webhooks.
+    'razorpay' => [
+        'key_id' => env('RAZORPAY_KEY_ID'),
+        'key_secret' => env('RAZORPAY_KEY_SECRET'),
+        'webhook_secret' => env('RAZORPAY_WEBHOOK_SECRET'),
+    ],
+
     'twilio' => [
         'sid' => env('TWILIO_SID'),
         'token' => env('TWILIO_TOKEN'),

@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\RazorpayWebhookController;
 use App\Http\Controllers\ReminderController;
 use App\Http\Controllers\RenewalController;
 use App\Http\Controllers\SeatController;
@@ -17,6 +18,9 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
 Route::post('/login', [AuthController::class, 'login']);
 
+// Razorpay -> server confirmation of subscription payments (verified by signature, not login).
+Route::post('/webhooks/razorpay', RazorpayWebhookController::class);
+
 Route::middleware('auth:sanctum')->group(function () {
     // The owner's own account - available whatever the subscription state.
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -25,7 +29,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/me/photo', [AuthController::class, 'uploadPhoto']);
 
     Route::middleware('library')->group(function () {
+        // Always available, so an expired (read-only) library can still pay.
         Route::get('/subscription', [SubscriptionController::class, 'show']);
+        Route::post('/subscription/checkout', [SubscriptionController::class, 'checkout']);
+        Route::get('/subscription/payments', [SubscriptionController::class, 'payments']);
 
         // Library data: always readable; changes need a trial, active plan or grace period.
         Route::middleware('subscription')->group(function () {
