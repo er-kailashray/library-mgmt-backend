@@ -43,6 +43,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/admission', [MemberController::class, 'admission']);
             Route::get('/batches', [BatchController::class, 'index']);
             Route::post('/batches', [BatchController::class, 'store']);
+            Route::post('/batches/{id}/update', [BatchController::class, 'update']);
+            Route::delete('/batches/{id}', [BatchController::class, 'destroy']);
             Route::get('/seat-matrix', [SeatController::class, 'index']);
             Route::get('/payments', [PaymentController::class, 'index']);
             Route::post('/payments', [PaymentController::class, 'store']);
