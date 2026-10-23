@@ -167,4 +167,134 @@ class AuthApiTest extends TestCase
 
         $this->assertStringStartsWith('http://192.168.1.10:8000/storage/profile-photos/', $url);
     }
+
+    private function registerPayload(array $overrides = []): array
+    {
+        return array_merge([
+            'name' => 'Owner',
+            'phone' => '9876543210',
+            'password' => 'secret123',
+            'library_name' => 'Test Library',
+            'total_seats' => 3,
+        ], $overrides);
+    }
+
+    public function test_verifying_the_register_otp_marks_the_phone_verified(): void
+    {
+        $user = User::factory()->phoneUnverified()->create(['phone' => '9876543210']);
+        OtpVerification::create([
+            'user_id' => $user->id,
+            'otp' => Hash::make('123456'),
+            'type' => 'register',
+            'expires_at' => now()->addMinutes(5),
+        ]);
+
+        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '123456', 'type' => 'register'])
+            ->assertOk()
+            ->assertJsonStructure(['token', 'user']);
+
+        $this->assertNotNull($user->fresh()->phone_verified_at);
+    }
+
+    public function test_unverified_number_can_register_again_and_gets_a_new_code(): void
+    {
+        $this->postJson('/api/register', $this->registerPayload())->assertOk();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'name' => 'Owner Again',
+            'library_name' => 'Renamed Library',
+            'total_seats' => 5,
+        ]))->assertOk();
+
+        $this->assertSame(1, User::where('phone', '9876543210')->count());
+        $user = User::where('phone', '9876543210')->first();
+        $library = $user->libraries()->first();
+
+        $this->assertSame('Owner Again', $user->name);
+        $this->assertSame('Renamed Library', $library->library_name);
+        $this->assertCount(5, $library->seats);
+        $this->assertSame(1, $user->libraries()->count());
+        $this->assertSame(2, OtpVerification::where('user_id', $user->id)->where('type', 'register')->count());
+    }
+
+    public function test_verified_number_cannot_register_again(): void
+    {
+        User::factory()->create(['phone' => '9876543210']);
+
+        $this->postJson('/api/register', $this->registerPayload())
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('phone');
+    }
+
+    public function test_unverified_user_must_verify_before_login(): void
+    {
+        $user = User::factory()->phoneUnverified()->create([
+            'phone' => '9876543210',
+            'password' => Hash::make('secret123'),
+        ]);
+
+        $this->postJson('/api/login', ['phone' => '9876543210', 'password' => 'secret123'])
+            ->assertForbidden()
+            ->assertJsonPath('requires_verification', true)
+            ->assertJsonMissingPath('token');
+
+        $this->assertSame(1, OtpVerification::where('user_id', $user->id)->where('type', 'register')->count());
+    }
+
+    public function test_verified_user_can_login(): void
+    {
+        User::factory()->create(['phone' => '9876543210', 'password' => Hash::make('secret123')]);
+
+        $this->postJson('/api/login', ['phone' => '9876543210', 'password' => 'secret123'])
+            ->assertOk()
+            ->assertJsonStructure(['token', 'user']);
+    }
+
+    public function test_resend_otp_waits_for_the_cooldown_then_sends_a_new_code(): void
+    {
+        $this->postJson('/api/register', $this->registerPayload())->assertOk();
+        $user = User::where('phone', '9876543210')->first();
+
+        $this->postJson('/api/resend-otp', ['phone' => '9876543210', 'type' => 'register'])
+            ->assertStatus(429)
+            ->assertJsonStructure(['retry_after']);
+
+        $this->travel(31)->seconds();
+
+        $this->postJson('/api/resend-otp', ['phone' => '9876543210', 'type' => 'register'])
+            ->assertOk()
+            ->assertJsonPath('retry_after', 30);
+
+        $this->assertSame(2, OtpVerification::where('user_id', $user->id)->where('type', 'register')->count());
+    }
+
+    public function test_only_the_newest_code_works_after_a_resend(): void
+    {
+        $user = User::factory()->phoneUnverified()->create(['phone' => '9876543210']);
+        OtpVerification::create([
+            'user_id' => $user->id,
+            'otp' => Hash::make('111111'),
+            'type' => 'register',
+            'expires_at' => now()->addMinutes(5),
+        ]);
+        OtpVerification::create([
+            'user_id' => $user->id,
+            'otp' => Hash::make('222222'),
+            'type' => 'register',
+            'expires_at' => now()->addMinutes(5),
+        ]);
+
+        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '111111', 'type' => 'register'])
+            ->assertStatus(400);
+        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '222222', 'type' => 'register'])
+            ->assertOk();
+    }
+
+    public function test_resend_otp_is_refused_for_a_verified_number(): void
+    {
+        User::factory()->create(['phone' => '9876543210']);
+
+        $this->postJson('/api/resend-otp', ['phone' => '9876543210', 'type' => 'register'])
+            ->assertStatus(422);
+    }
 }

@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
+Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:6,1');
 Route::post('/login', [AuthController::class, 'login']);
 
 // Razorpay -> server confirmation of subscription payments (verified by signature, not login).
