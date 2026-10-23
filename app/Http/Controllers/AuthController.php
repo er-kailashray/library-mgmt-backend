@@ -6,6 +6,7 @@ use App\Models\Library;
 use App\Models\OtpVerification;
 use App\Models\Seat;
 use App\Models\User;
+use App\Services\Subscriptions\SubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -15,7 +16,7 @@ use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
-    public function register(Request $request)
+    public function register(Request $request, SubscriptionService $subscriptions)
     {
         $request->validate([
             'name' => 'required|string',
@@ -51,6 +52,9 @@ class AuthController extends Controller
             }
 
             Seat::insert($seats);
+
+            // Every new library starts on a free trial.
+            $subscriptions->startTrial($library);
 
             // Send OTP to the user's phone number
             $otp = random_int(100000, 999999);

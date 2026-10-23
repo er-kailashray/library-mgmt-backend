@@ -32,6 +32,11 @@ class Library extends Model
         return $this->hasMany(Seat::class);
     }
 
+    public function subscription()
+    {
+        return $this->hasOne(Subscription::class);
+    }
+
     public function photos()
     {
         return $this->hasMany(LibraryPhoto::class);

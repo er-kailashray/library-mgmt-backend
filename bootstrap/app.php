@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'library' => \App\Http\Middleware\ResolveLibrary::class,
+            'subscription' => \App\Http\Middleware\EnsureSubscriptionAllowsWrites::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
