@@ -19,7 +19,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'library' => \App\Http\Middleware\ResolveLibrary::class,
             'subscription' => \App\Http\Middleware\EnsureSubscriptionAllowsWrites::class,
+            'admin' => \App\Http\Middleware\EnsureAdmin::class,
         ]);
+
+        // Signed-out visitors to the admin panel go to its sign-in page (the API answers 401 instead).
+        $middleware->redirectGuestsTo(fn () => route('admin.login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

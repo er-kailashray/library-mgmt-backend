@@ -42,7 +42,8 @@ class SubscriptionApiTest extends TestCase
             ->assertJsonPath('data.plans.1.duration_months', 12);
     }
 
-    public function test_registration_starts_a_two_month_trial(): void
+    // The default trial is 60 days (changeable in the admin panel; see AdminPanelTest).
+    public function test_registration_starts_the_default_trial(): void
     {
         $this->postJson('/api/register', [
             'name' => 'New Owner',
@@ -53,7 +54,7 @@ class SubscriptionApiTest extends TestCase
         ])->assertOk();
 
         $library = Library::where('library_name', 'Fresh Library')->firstOrFail();
-        $this->assertSame('2026-12-24', $library->subscription->ends_at->toDateString());
+        $this->assertSame('2026-12-23', $library->subscription->ends_at->toDateString());
         $this->assertNull($library->subscription->plan_id);
     }
 
@@ -63,7 +64,7 @@ class SubscriptionApiTest extends TestCase
             ->assertJsonPath('data.state', 'trial')
             ->assertJsonPath('data.can_write', true)
             ->assertJsonPath('data.plan', null)
-            ->assertJsonPath('data.days_left', 61);
+            ->assertJsonPath('data.days_left', 60);
 
         $this->assertSame(1, Subscription::where('library_id', $this->library->id)->count());
     }

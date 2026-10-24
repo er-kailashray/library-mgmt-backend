@@ -13,7 +13,8 @@ return [
     |
     */
 
-    'trial_months' => env('SUBSCRIPTION_TRIAL_MONTHS', 2),
+    // Only a fallback: the trial length is set in the admin panel (Settings) and stored in app_settings.
+    'trial_days' => env('SUBSCRIPTION_TRIAL_DAYS', 60),
 
     'grace_days' => env('SUBSCRIPTION_GRACE_DAYS', 3),
 

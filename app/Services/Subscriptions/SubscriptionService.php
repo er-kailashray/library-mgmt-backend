@@ -5,6 +5,7 @@ namespace App\Services\Subscriptions;
 use App\Models\Library;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
+use App\Services\Settings\AppSettings;
 use Carbon\CarbonInterface;
 
 /**
@@ -20,7 +21,8 @@ class SubscriptionService
         return Subscription::create([
             'library_id' => $library->id,
             'starts_at' => $now,
-            'ends_at' => $now->copy()->addMonthsNoOverflow((int) config('subscription.trial_months')),
+            // Set in the admin panel; changing it only affects libraries that sign up afterwards.
+            'ends_at' => $now->copy()->addDays(app(AppSettings::class)->trialDays()),
         ]);
     }
 
