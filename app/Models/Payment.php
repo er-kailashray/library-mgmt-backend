@@ -13,6 +13,9 @@ class Payment extends Model
         'amount',
         'status',
         'payment_date',
+        'period_start',
+        'period_end',
+        'seats',
         'payment_mode',
         'notes',
     ];
@@ -21,6 +24,9 @@ class Payment extends Model
         'amount' => 'float',
         'status' => PaymentStatus::class,
         'payment_date' => 'date',
+        'period_start' => 'date',
+        'period_end' => 'date',
+        'seats' => 'array',
     ];
 
     public function library()

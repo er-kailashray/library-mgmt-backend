@@ -13,7 +13,12 @@ class SeatAllocation extends Model
         'batch_id',
         'start_date',
         'renewal_date',
+        'ended_on',
         'status',
+    ];
+
+    protected $casts = [
+        'ended_on' => 'date',
     ];
 
     public function library()
@@ -26,13 +31,14 @@ class SeatAllocation extends Model
         return $this->belongsTo(Member::class);
     }
 
+    // Past seats keep pointing at their batch and seat even after those are deleted.
     public function batch()
     {
-        return $this->belongsTo(Batch::class);
+        return $this->belongsTo(Batch::class)->withTrashed();
     }
 
     public function seat()
     {
-        return $this->belongsTo(Seat::class);
+        return $this->belongsTo(Seat::class)->withTrashed();
     }
 }

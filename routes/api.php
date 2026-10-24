@@ -54,12 +54,14 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/members/{id}/id-proof', [MemberController::class, 'updateIdProof']);
             Route::delete('/members/{id}/id-proof/{side?}', [MemberController::class, 'deleteIdProof']);
             Route::post('/members/{id}/deactivate', [MemberController::class, 'deactivate']);
+            Route::post('/members/{id}/restart', [MemberController::class, 'restart']);
             Route::post('/members/{id}/remind', [MemberController::class, 'remind']);
             Route::post('/reminders/overdue', [ReminderController::class, 'overdue']);
             Route::get('/renewals/upcoming', [RenewalController::class, 'index']);
             Route::post('/renewals/upcoming/remind', [RenewalController::class, 'remindAll']);
             Route::get('/attendance', [AttendanceController::class, 'index']);
             Route::post('/attendance', [AttendanceController::class, 'store']);
+            Route::post('/attendance/clear', [AttendanceController::class, 'clear']);
             Route::get('/library', [LibraryController::class, 'show']);
             Route::post('/library/update', [LibraryController::class, 'update']);
             Route::post('/library/amenities', [LibraryController::class, 'updateAmenities']);

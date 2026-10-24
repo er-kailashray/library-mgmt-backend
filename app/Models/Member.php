@@ -11,6 +11,7 @@ class Member extends Model
         'name',
         'phone',
         'gender',
+        'address',
         'join_date',
         'status',
         'outstanding_balance',
@@ -43,5 +44,18 @@ class Member extends Model
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * The day they joined: the recorded joining date, or for members added before that was saved,
+     * the start of their first seat (else the day they were added).
+     */
+    public function joinedOn(): ?string
+    {
+        $date = $this->join_date
+            ?? $this->allocations()->min('start_date')
+            ?? $this->created_at?->toDateString();
+
+        return $date ? substr((string) $date, 0, 10) : null;
     }
 }

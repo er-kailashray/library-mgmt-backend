@@ -23,6 +23,8 @@ class StorePaymentRequest extends FormRequest
             'payment_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
             'payment_mode' => ['nullable', Rule::in(array_keys(config('library.payment_modes')))],
             'notes' => ['nullable', 'string', 'max:500'],
+            // Back after a break: restart the membership on this date (checked against their seats in PaymentService).
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
         ];
     }
 }

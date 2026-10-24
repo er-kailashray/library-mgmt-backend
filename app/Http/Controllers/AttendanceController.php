@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreAttendanceRequest;
+use App\Models\Member;
 use App\Models\SeatAllocation;
 use App\Services\Attendance\AttendanceService;
 use Illuminate\Http\Request;
@@ -21,6 +22,8 @@ class AttendanceController extends Controller
             'status' => true,
             'data' => [
                 'date' => $date,
+                // Marks can only be added or changed from this day up to today.
+                'editable_from' => AttendanceService::earliestEditableDate()->toDateString(),
                 'batches' => $this->attendance->roster($this->library($request), $date),
             ],
         ]);
@@ -30,6 +33,11 @@ class AttendanceController extends Controller
     {
         $library = $this->library($request);
         $data = $request->validated();
+        $date = $data['date'] ?? now()->toDateString();
+
+        if (! Member::where('library_id', $library->id)->where('id', $data['member_id'])->where('status', 'active')->exists()) {
+            return response()->json(['status' => false, 'message' => 'Only current members can be marked.'], 422);
+        }
 
         $isEnrolled = SeatAllocation::where('library_id', $library->id)
             ->where('member_id', $data['member_id'])
@@ -37,21 +45,43 @@ class AttendanceController extends Controller
             ->where('status', 'active')
             ->exists();
 
-        if (! $isEnrolled) {
+        // Coming to a different batch for the day (agreed with the owner) is fine; being marked
+        // absent from a batch they don't belong to isn't.
+        if (! $isEnrolled && $data['status'] !== 'present') {
             return response()->json([
                 'status' => false,
                 'message' => 'Member is not enrolled in this batch',
             ], 422);
         }
 
-        $this->attendance->mark(
-            $library,
-            $data['member_id'],
-            $data['batch_id'],
-            $data['date'] ?? now()->toDateString(),
-            $data['status'],
-        );
+        // Today, "now" is when they came; for an earlier day the time has to be given.
+        $checkInAt = $data['check_in_at'] ?? null;
+        if ($data['status'] === 'present' && ! $checkInAt) {
+            if ($date !== now()->toDateString()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Pick the time they came in.',
+                    'errors' => ['check_in_at' => ['Pick the time they came in.']],
+                ], 422);
+            }
+            $checkInAt = now()->format('H:i');
+        }
 
-        return response()->json(['status' => true, 'message' => 'Attendance updated']);
+        $record = $this->attendance->mark($library, $data['member_id'], $data['batch_id'], $date, $data['status'], $checkInAt);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Attendance updated',
+            'data' => ['status' => $record->status, 'check_in_at' => $record->check_in_at ? substr($record->check_in_at, 0, 5) : null],
+        ]);
+    }
+
+    /** Undo a mark for one member, batch and day. */
+    public function clear(StoreAttendanceRequest $request)
+    {
+        $data = $request->validated();
+        $this->attendance->clear($this->library($request), $data['member_id'], $data['batch_id'], $data['date'] ?? now()->toDateString());
+
+        return response()->json(['status' => true, 'message' => 'Attendance cleared']);
     }
 }

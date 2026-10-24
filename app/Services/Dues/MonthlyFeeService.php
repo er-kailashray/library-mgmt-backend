@@ -2,6 +2,7 @@
 
 namespace App\Services\Dues;
 
+use App\Enums\PaymentStatus;
 use App\Models\Payment;
 use App\Models\SeatAllocation;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
@@ -138,6 +139,12 @@ class MonthlyFeeService
         $credits = $this->payments->unsettledPartialTotals($payments->pluck('member_id')->unique()->values()->all());
 
         foreach ($payments->groupBy('member_id') as $memberId => $memberPayments) {
+            // A refund gives back days it names itself, so it comes off the bucket those days fall in.
+            [$refunds, $memberPayments] = $memberPayments->partition(fn (Payment $payment) => $payment->status === PaymentStatus::Refunded);
+            foreach ($refunds as $refund) {
+                $classify(Carbon::instance($refund->period_start ?? $refund->payment_date)->startOfDay(), (float) $refund->amount);
+            }
+
             [$settlements, $regular] = $memberPayments->partition(fn (Payment $payment) => str_starts_with((string) $payment->notes, self::SETTLEMENT_NOTE));
             $split['for_earlier_months'] += (float) $settlements->sum('amount');
 

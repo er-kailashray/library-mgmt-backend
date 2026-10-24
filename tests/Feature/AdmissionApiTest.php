@@ -72,6 +72,33 @@ class AdmissionApiTest extends TestCase
         $this->assertSame('female', Member::where('phone', '9876543211')->first()->gender);
     }
 
+    public function test_creates_member_with_address(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/admission', [
+            'name' => 'Priya Verma',
+            'phone' => '9876543211',
+            'address' => '12 MG Road, Indore',
+            'allocations' => [
+                ['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)],
+            ],
+        ])->assertOk();
+
+        $this->assertSame('12 MG Road, Indore', Member::where('phone', '9876543211')->first()->address);
+    }
+
+    public function test_address_is_optional(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/admission', [
+            'name' => 'Priya Verma',
+            'phone' => '9876543211',
+            'allocations' => [
+                ['batch_id' => $this->batch->id, 'seat_id' => $this->seatId(1)],
+            ],
+        ])->assertOk();
+
+        $this->assertNull(Member::where('phone', '9876543211')->first()->address);
+    }
+
     public function test_rejects_invalid_gender(): void
     {
         $this->actingAs($this->owner)->postJson('/api/admission', [

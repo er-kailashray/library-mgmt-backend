@@ -48,4 +48,9 @@ interface SeatAllocationRepositoryInterface
      * Push every active allocation's renewal_date forward for one member.
      */
     public function extendRenewalDates(int $memberId, int $months): void;
+
+    /**
+     * Set every active allocation's renewal_date for one member, e.g. restarting after a break.
+     */
+    public function setRenewalDates(int $memberId, CarbonInterface $date): void;
 }

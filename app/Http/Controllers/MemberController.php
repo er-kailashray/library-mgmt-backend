@@ -13,6 +13,7 @@ use App\Services\Dues\MemberDueService;
 use App\Services\Dues\MonthlyFeeService;
 use App\Services\Payments\PaymentService;
 use App\Services\Reminders\ReminderService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -58,6 +59,7 @@ class MemberController extends Controller
                 'id' => $member->id,
                 'name' => $member->name,
                 'phone' => $member->phone,
+                'join_date' => $member->joinedOn(),
                 'status' => $member->status,
                 'payment_status' => $isDue ? 'Due' : 'Paid',
                 'active_allocations_count' => $member->allocations->count(),
@@ -71,24 +73,15 @@ class MemberController extends Controller
         ]);
     }
 
+    /** How far back a joining date may go, for entering members from before the app. */
+    private const JOIN_DATE_MAX_YEARS_BACK = 5;
+
+    /** How far ahead a joining date may be, for a seat booked to start soon. */
+    private const JOIN_DATE_MAX_DAYS_AHEAD = 31;
+
     public function admission(Request $request)
     {
-        $request->validate([
-            'name' => 'required|string|max:100',
-            'phone' => 'required|regex:/^[6-9]\d{9}$/',
-            'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
-            'allocations' => 'required|array|min:1',
-            'allocations.*.batch_id' => 'required|exists:batches,id',
-            'allocations.*.seat_id' => 'required|exists:seats,id',
-            // First payment taken at the desk; omit it for "pay later".
-            'payment' => 'nullable|array',
-            'payment.amount' => 'required_with:payment|numeric|gt:0',
-            'payment.payment_mode' => ['nullable', Rule::in(array_keys(config('library.payment_modes')))],
-            // Readmitting someone who left owing money: how much of it is collected now (0 = waive all).
-            'previous_dues_paid' => 'nullable|numeric|min:0',
-            'previous_dues_mode' => ['nullable', Rule::in(array_keys(config('library.payment_modes')))],
-        ]);
-
+        // Needed first: the seats and batches picked must belong to this library (and not be deleted).
         $library = auth()->user()->libraries()->first();
 
         if (! $library) {
@@ -98,7 +91,39 @@ class MemberController extends Controller
             ], 404);
         }
 
-        return DB::transaction(function () use ($request, $library) {
+        $request->validate([
+            'name' => 'required|string|max:100',
+            'phone' => 'required|regex:/^[6-9]\d{9}$/',
+            'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
+            'address' => 'nullable|string|max:500',
+            // When they started. Defaults to today; earlier dates are for entering existing members.
+            'join_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:'.now()->subYears(self::JOIN_DATE_MAX_YEARS_BACK)->toDateString(), 'before_or_equal:'.now()->addDays(self::JOIN_DATE_MAX_DAYS_AHEAD)->toDateString()],
+            // Existing members: the last day already paid for before using the app. Not recorded as money
+            // received today - it only sets how far they're covered.
+            'paid_until' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.now()->addYear()->toDateString()],
+            'allocations' => 'required|array|min:1',
+            'allocations.*.batch_id' => ['required', Rule::exists('batches', 'id')->where('library_id', $library->id)->whereNull('deleted_at')],
+            'allocations.*.seat_id' => ['required', Rule::exists('seats', 'id')->where('library_id', $library->id)->whereNull('deleted_at')],
+            // First payment taken at the desk; omit it for "pay later".
+            'payment' => 'nullable|array',
+            'payment.amount' => 'required_with:payment|numeric|gt:0',
+            'payment.payment_mode' => ['nullable', Rule::in(array_keys(config('library.payment_modes')))],
+            // Readmitting someone who left owing money: how much of it is collected now (0 = waive all).
+            'previous_dues_paid' => 'nullable|numeric|min:0',
+            'previous_dues_mode' => ['nullable', Rule::in(array_keys(config('library.payment_modes')))],
+        ]);
+
+        $joinDate = $request->filled('join_date') ? Carbon::parse($request->join_date)->startOfDay() : now()->startOfDay();
+        $paidUntil = $request->filled('paid_until') ? Carbon::parse($request->paid_until)->startOfDay() : null;
+        if ($paidUntil && $paidUntil->lt($joinDate)) {
+            return response()->json([
+                'status' => false,
+                'message' => "\"Paid till\" can't be before the joining date.",
+                'errors' => ['paid_until' => ["\"Paid till\" can't be before the joining date."]],
+            ], 422);
+        }
+
+        return DB::transaction(function () use ($request, $library, $joinDate, $paidUntil) {
 
             $monthlyFee = 0.0;
 
@@ -196,6 +221,7 @@ class MemberController extends Controller
                             'status' => PaymentStatus::Paid,
                             'payment_date' => now()->toDateString(),
                             'payment_mode' => $request->input('previous_dues_mode'),
+                            'seats' => PaymentService::seatSnapshot($this->lastSeats($member)),
                             'notes' => MonthlyFeeService::SETTLEMENT_NOTE.($waived > 0 ? ' (₹'.number_format($waived).' waived)' : ''),
                         ]);
                     }
@@ -204,47 +230,60 @@ class MemberController extends Controller
                 $member->update([
                     'name' => $request->name,
                     'gender' => $request->gender ?? $member->gender,
+                    // Keep the address on file unless a new one was entered.
+                    'address' => $request->filled('address') ? $request->address : $member->address,
                     'status' => 'active',
                     'outstanding_balance' => 0,
                 ]);
             } else {
                 $member = Member::create([
                     'library_id' => $library->id,
+                    'join_date' => $joinDate->toDateString(),
                     'name' => $request->name,
                     'phone' => $request->phone,
                     'gender' => $request->gender,
+                    'address' => $request->filled('address') ? $request->address : null,
                     'status' => 'active',
                 ]);
             }
 
-            // renewal_date is the paid-through date. A full first payment covers one month; otherwise
-            // the member is due from today, so unpaid / part-paid admissions show up in dues straight away.
+            // renewal_date is the paid-through date. Cover starts on the joining date, or the day after
+            // "paid till" for members who'd already paid before using the app. Each full monthly fee taken
+            // now covers one month from there; with less (or nothing) they're due from that day, so they
+            // show up in dues straight away.
+            $coverFrom = $paidUntil ? $paidUntil->copy()->addDay() : $joinDate->copy();
             $paidAmount = (float) $request->input('payment.amount', 0);
-            $fullyPaid = $paidAmount >= $monthlyFee;
-            $renewalDate = ($fullyPaid ? now()->addMonthNoOverflow() : now())->toDateString();
+            $monthsCovered = $monthlyFee > 0 ? (int) floor($paidAmount / $monthlyFee + 1e-9) : ($paidAmount > 0 ? 1 : 0);
+            $renewalDate = $coverFrom->copy()->addMonthsNoOverflow($monthsCovered)->toDateString();
 
+            // Create allocations
+            $newAllocations = [];
+            foreach ($request->allocations as $allocation) {
+
+                $newAllocations[] = SeatAllocation::create([
+                    'library_id' => $library->id,
+                    'member_id' => $member->id,
+                    'batch_id' => $allocation['batch_id'],
+                    'seat_id' => $allocation['seat_id'],
+                    'start_date' => $joinDate->toDateString(),
+                    'renewal_date' => $renewalDate,
+                    'status' => 'active',
+                ]);
+            }
+
+            // After the seats exist, so the payment can keep a copy of them.
             if ($request->filled('payment')) {
                 Payment::create([
                     'library_id' => $library->id,
                     'member_id' => $member->id,
                     'amount' => $paidAmount,
-                    'status' => $fullyPaid ? PaymentStatus::Paid : PaymentStatus::Partial,
+                    'status' => $monthsCovered >= 1 ? PaymentStatus::Paid : PaymentStatus::Partial,
+                    // Money taken today, whatever the joining date.
                     'payment_date' => now()->toDateString(),
+                    'period_start' => $coverFrom->toDateString(),
+                    'period_end' => $coverFrom->copy()->addMonthsNoOverflow(max(1, $monthsCovered))->subDay()->toDateString(),
+                    'seats' => PaymentService::seatSnapshot(collect($newAllocations)->each->load(['batch', 'seat'])),
                     'payment_mode' => $request->input('payment.payment_mode'),
-                ]);
-            }
-
-            // Create allocations
-            foreach ($request->allocations as $allocation) {
-
-                SeatAllocation::create([
-                    'library_id' => $library->id,
-                    'member_id' => $member->id,
-                    'batch_id' => $allocation['batch_id'],
-                    'seat_id' => $allocation['seat_id'],
-                    'start_date' => now()->toDateString(),
-                    'renewal_date' => $renewalDate,
-                    'status' => 'active',
                 ]);
             }
 
@@ -280,6 +319,8 @@ class MemberController extends Controller
                 'name' => $member->name,
                 'phone' => $member->phone,
                 'gender' => $member->gender,
+                'address' => $member->address,
+                'join_date' => $member->joinedOn(),
                 'status' => $member->status,
                 'payment_status' => $due ? 'Due' : 'Paid',
                 'due_amount' => $due?->amount,
@@ -288,7 +329,27 @@ class MemberController extends Controller
                 'monthly_fee' => $monthlyFee,
                 // Pre-fills "Record Payment / Renew"; null for members with no active seat.
                 'suggested_payment' => $member->allocations->isEmpty() ? null : $this->payments->suggestedRenewalAmount($member, $monthlyFee, $due),
+                // Paid up to (not including) this date; a new payment's period starts here.
+                'paid_through' => $this->payments->paidThrough($member->allocations)?->toDateString(),
+                // Earlier part-payments that count toward the next full fee.
+                'partial_credit' => $this->payments->partialCredit($member),
+                // What "Mark as left" can offer back; null when no paid days are left.
+                'refund_options' => $member->allocations->isEmpty() ? null : $this->payments->refundOptions($member, $monthlyFee),
                 'payments' => $this->payments->historyForMember($member),
+                // Every seat they've had, newest first - including ones that ended or whose batch was deleted.
+                'seat_history' => $member->allocations()
+                    ->with(['batch', 'seat'])
+                    ->orderByDesc('start_date')
+                    ->orderByDesc('id')
+                    ->get()
+                    ->map(fn (SeatAllocation $allocation) => [
+                        'batch_name' => $allocation->batch?->name,
+                        'seat_number' => $allocation->seat?->seat_number,
+                        'start_date' => substr((string) $allocation->start_date, 0, 10),
+                        'ended_on' => $allocation->ended_on?->toDateString(),
+                        'status' => $allocation->status,
+                    ])
+                    ->all(),
                 'id_proof_type' => $member->id_proof_type,
                 'has_id_proof_front' => (bool) $member->id_proof_front_path,
                 'has_id_proof_back' => (bool) $member->id_proof_back_path,
@@ -322,6 +383,7 @@ class MemberController extends Controller
                 Rule::unique('members', 'phone')->where('library_id', $library->id)->ignore($member->id),
             ],
             'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
+            'address' => 'nullable|string|max:500',
         ]);
 
         // Phone is the key admission() uses to recognize a rejoining member and reactivate
@@ -422,18 +484,71 @@ class MemberController extends Controller
             return response()->json(['status' => false, 'message' => 'Member not found'], 404);
         }
 
+        $request->validate([
+            'refund_amount' => 'nullable|numeric|gt:0',
+            'refund_mode' => ['nullable', Rule::in(array_keys(config('library.payment_modes')))],
+        ]);
+
         // Ended seats stop accruing dues, so freeze what's owed now; it's settled if they're readmitted.
         $owed = $this->dues->overdueMembers($member->library_id, now())->get($member->id)?->amount ?? 0.0;
 
-        DB::transaction(function () use ($member, $owed) {
+        // Giving money back for paid days they won't use - never more than they paid ahead.
+        $refund = (float) $request->input('refund_amount', 0);
+        $options = null;
+        if ($refund > 0) {
+            $monthlyFee = (float) $member->allocations()->where('status', 'active')->with('batch')->get()->sum(fn ($allocation) => $allocation->batch->monthly_fee);
+            $options = $this->payments->refundOptions($member, $monthlyFee);
+            if (! $options) {
+                return response()->json(['status' => false, 'message' => "There's no unused paid time to refund."], 422);
+            }
+            if ($refund > $options['full']) {
+                return response()->json(['status' => false, 'message' => 'The refund can be at most ₹'.number_format($options['full']).'.'], 422);
+            }
+        }
+
+        DB::transaction(function () use ($request, $member, $owed, $refund, $options) {
+            if ($refund > 0) {
+                $this->payments->recordRefund($this->library($request), $member, $refund, $request->input('refund_mode'), \Carbon\Carbon::parse($options['paid_through']));
+            }
             $member->update(['status' => 'inactive', 'outstanding_balance' => $owed]);
-            $member->allocations()->where('status', 'active')->update(['status' => 'ended']);
+            $member->allocations()->where('status', 'active')->update(['status' => 'ended', 'ended_on' => now()->toDateString()]);
         });
 
         return response()->json([
             'status' => true,
             'message' => 'Member marked as inactive and their seats were freed',
         ]);
+    }
+
+    /**
+     * Back after a break, paying later: restarts the membership on a chosen date. They're due from
+     * that date; the days in between are never charged.
+     */
+    public function restart(Request $request, int $id)
+    {
+        $member = Member::where('library_id', $this->library($request)->id)->where('status', 'active')->find($id);
+
+        if (! $member) {
+            return response()->json(['status' => false, 'message' => 'Member not found'], 404);
+        }
+
+        $request->validate(['start_date' => 'required|date_format:Y-m-d']);
+        $this->payments->restart($member, \Carbon\Carbon::parse($request->start_date));
+
+        return response()->json(['status' => true, 'message' => 'Membership restarted']);
+    }
+
+    /**
+     * The seats a member had when they last left: their most recently ended set.
+     *
+     * @return \Illuminate\Support\Collection<int, SeatAllocation>
+     */
+    private function lastSeats(Member $member)
+    {
+        $ended = $member->allocations()->where('status', 'ended')->with(['batch', 'seat'])->get();
+        $latest = $ended->max(fn (SeatAllocation $allocation) => $allocation->ended_on?->toDateString() ?? (string) $allocation->renewal_date);
+
+        return $ended->filter(fn (SeatAllocation $allocation) => ($allocation->ended_on?->toDateString() ?? (string) $allocation->renewal_date) === $latest)->values();
     }
 
     public function idProof(Request $request, int $id, string $side)

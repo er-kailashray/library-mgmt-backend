@@ -88,7 +88,7 @@ class BatchController extends Controller
             return response()->json(['status' => false, 'message' => 'Batch not found'], 404);
         }
 
-        // Deleting cascades to seat allocations and attendance, so never take seated members with it.
+        // Soft delete: the batch, its past seats and attendance stay on record. Still never with members seated in it.
         $activeMembers = $batch->allocations()->where('status', 'active')->count();
 
         if ($activeMembers > 0) {
@@ -114,8 +114,9 @@ class BatchController extends Controller
     private function validateBatch(Request $request, $library, ?Batch $ignore = null)
     {
         $request->validate([
+            // A deleted batch's name is free to use again.
             'name' => ['required', 'string', 'max:100', Rule::unique('batches')->where(function ($query) use ($library) {
-                return $query->where('library_id', $library->id);
+                return $query->where('library_id', $library->id)->whereNull('deleted_at');
             })->ignore($ignore?->id)],
             // Batches run on 15-minute steps (e.g. 10:30); an end before the start means it runs past midnight.
             'start_time' => ['required', 'date_format:H:i', 'regex:/^\d{2}:(00|15|30|45)$/'],

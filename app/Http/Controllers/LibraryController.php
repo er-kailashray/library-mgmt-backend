@@ -11,7 +11,12 @@ use Illuminate\Validation\Rule;
 
 class LibraryController extends Controller
 {
-    private const AMENITIES = ['ac', 'wifi', 'water', 'power_backup', 'parking', 'cctv', 'washroom', 'locker'];
+    // Keep in step with AMENITY_GROUPS in the app (library-profile.types.ts).
+    private const AMENITIES = [
+        'ac', 'cooler', 'desk_lamp', 'water', 'washroom', 'silent_zone',
+        'wifi', 'charging', 'newspaper', 'magazines', 'books', 'printing',
+        'cctv', 'power_backup', 'locker', 'parking', 'refreshments', 'first_aid',
+    ];
 
     private const MAX_PHOTOS = 10;
 
@@ -52,6 +57,7 @@ class LibraryController extends Controller
                 ], 422);
             }
 
+            // Soft delete: past bookings of these seats stay on record.
             Seat::whereIn('id', $seatsToRemove->pluck('id'))->delete();
         }
 

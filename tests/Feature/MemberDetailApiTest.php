@@ -172,6 +172,38 @@ class MemberDetailApiTest extends TestCase
         $this->assertSame('male', $member->fresh()->gender);
     }
 
+    public function test_can_update_member_address_and_it_is_shown(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+
+        $this->actingAs($this->owner)->postJson("/api/members/{$member->id}/update", [
+            'name' => $member->name,
+            'phone' => $member->phone,
+            'address' => 'Flat 4, Shanti Nagar',
+        ])->assertOk();
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertOk()
+            ->assertJsonPath('data.address', 'Flat 4, Shanti Nagar');
+    }
+
+    public function test_member_list_and_detail_show_when_they_joined(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+        $member->update(['join_date' => '2026-08-01']);
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")->assertJsonPath('data.join_date', '2026-08-01');
+        $this->actingAs($this->owner)->getJson('/api/members')->assertJsonPath('data.0.join_date', '2026-08-01');
+    }
+
+    public function test_members_without_a_saved_joining_date_use_their_first_seat(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01'); // seat started a month before "today"
+
+        $this->actingAs($this->owner)->getJson("/api/members/{$member->id}")
+            ->assertJsonPath('data.join_date', substr($member->allocations()->first()->start_date, 0, 10));
+    }
+
     public function test_update_rejects_invalid_gender(): void
     {
         $member = $this->admit('Rahul Sharma', 1, '2026-11-01');

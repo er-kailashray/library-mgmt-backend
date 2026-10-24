@@ -70,6 +70,13 @@ class LibraryApiTest extends TestCase
         $this->assertSame(3, $this->library->seats()->count());
     }
 
+    public function test_can_save_the_newer_amenities(): void
+    {
+        $this->actingAs($this->owner)->postJson('/api/library/amenities', [
+            'amenities' => ['newspaper', 'charging', 'first_aid'],
+        ])->assertOk()->assertJsonPath('data.amenities', ['newspaper', 'charging', 'first_aid']);
+    }
+
     public function test_can_update_amenities(): void
     {
         $this->actingAs($this->owner)->postJson('/api/library/amenities', [

@@ -20,7 +20,9 @@ class PaymentRepository implements PaymentRepositoryInterface
 
     public function countBetween(int $libraryId, CarbonInterface $from, CarbonInterface $to): int
     {
+        // A refund isn't a payment received.
         return Payment::where('library_id', $libraryId)
+            ->where('status', '!=', PaymentStatus::Refunded)
             ->whereDate('payment_date', '>=', $from->toDateString())
             ->whereDate('payment_date', '<=', $to->toDateString())
             ->count();

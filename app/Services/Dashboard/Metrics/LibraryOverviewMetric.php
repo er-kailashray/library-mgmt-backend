@@ -2,6 +2,7 @@
 
 namespace App\Services\Dashboard\Metrics;
 
+use App\Models\Attendance;
 use App\Models\Batch;
 use App\Models\Library;
 use App\Repositories\Contracts\SeatAllocationRepositoryInterface;
@@ -17,6 +18,13 @@ class LibraryOverviewMetric implements DashboardMetric
     public function compute(Library $library, CarbonInterface $today): array
     {
         $totalSeats = $library->seats()->count();
+        // Who has checked in to each batch today, for Home's live batch card.
+        $checkedInToday = Attendance::where('library_id', $library->id)
+            ->whereDate('date', $today->toDateString())
+            ->where('status', 'present')
+            ->selectRaw('batch_id, count(*) as checked_in')
+            ->groupBy('batch_id')
+            ->pluck('checked_in', 'batch_id');
 
         return [
             'library_name' => $library->library_name,
@@ -33,6 +41,7 @@ class LibraryOverviewMetric implements DashboardMetric
                 ->withCount(['allocations as occupied' => fn ($query) => $query->where('status', 'active')])
                 ->get()
                 ->map(fn (Batch $batch) => [
+                    'checked_in_today' => (int) $checkedInToday->get($batch->id, 0),
                     'id' => $batch->id,
                     'name' => $batch->name,
                     'start_time' => $batch->start_time,

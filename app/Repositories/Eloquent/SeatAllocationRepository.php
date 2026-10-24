@@ -52,7 +52,7 @@ class SeatAllocationRepository implements SeatAllocationRepositoryInterface
     {
         return SeatAllocation::where('member_id', $memberId)
             ->where('status', 'active')
-            ->with('batch')
+            ->with(['batch', 'seat'])
             ->get();
     }
 
@@ -63,6 +63,13 @@ class SeatAllocationRepository implements SeatAllocationRepositoryInterface
                 'renewal_date' => Carbon::parse($allocation->renewal_date)->addMonthsNoOverflow($months)->toDateString(),
             ]);
         });
+    }
+
+    public function setRenewalDates(int $memberId, CarbonInterface $date): void
+    {
+        SeatAllocation::where('member_id', $memberId)
+            ->where('status', 'active')
+            ->update(['renewal_date' => $date->toDateString()]);
     }
 
     private function active(int $libraryId): Builder

@@ -12,6 +12,7 @@ class Attendance extends Model
         'batch_id',
         'date',
         'status',
+        'check_in_at',
     ];
 
     public function library()

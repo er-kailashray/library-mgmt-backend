@@ -180,7 +180,7 @@ class BatchApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('status', true);
 
-        $this->assertModelMissing($this->batch);
+        $this->assertSoftDeleted($this->batch);
     }
 
     public function test_cannot_delete_a_batch_with_active_members(): void
@@ -204,7 +204,7 @@ class BatchApiTest extends TestCase
 
         $this->actingAs($this->owner)->deleteJson("/api/batches/{$this->batch->id}")->assertOk();
 
-        $this->assertModelMissing($this->batch);
+        $this->assertSoftDeleted($this->batch);
         $this->assertModelExists($member);
     }
 

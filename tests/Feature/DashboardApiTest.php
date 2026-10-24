@@ -359,4 +359,33 @@ class DashboardApiTest extends TestCase
             ->assertJsonPath('data.month_cash.for_this_month', 1000)
             ->assertJsonPath('data.month_cash.for_earlier_months', 0);
     }
+
+    public function test_batch_occupancy_includes_todays_check_ins(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01');
+        \App\Models\Attendance::create([
+            'library_id' => $this->library->id,
+            'member_id' => $member->id,
+            'batch_id' => $this->batch->id,
+            'date' => now()->toDateString(),
+            'status' => 'present',
+            'check_in_at' => '09:10',
+        ]);
+
+        $this->actingAs($this->owner)->getJson('/api/dashboard')
+            ->assertJsonPath('data.batch_occupancy.0.checked_in_today', 1)
+            ->assertJsonPath('data.batch_occupancy.0.occupied', 1);
+    }
+
+    public function test_recent_payments_carry_mode_time_and_period(): void
+    {
+        $member = $this->admit('Rahul Sharma', 1, '2026-10-25');
+        $this->actingAs($this->owner)->postJson('/api/payments', ['member_id' => $member->id, 'amount' => 1000, 'payment_mode' => 'upi'])->assertCreated();
+
+        $this->actingAs($this->owner)->getJson('/api/dashboard')
+            ->assertJsonPath('data.recent_payments.0.status', 'PAID')
+            ->assertJsonPath('data.recent_payments.0.method', 'UPI')
+            ->assertJsonPath('data.recent_payments.0.period_start', '2026-10-25')
+            ->assertJsonPath('data.recent_payments.0.period_end', '2026-11-24');
+    }
 }
