@@ -48,6 +48,11 @@ This directory is a custom messaging layer, **not** Laravel's built-in Notificat
 
 Push notifications to owners are separate: `Push\PushNotifier::sendToUser($user, $title, $body, ['url' => '/screen'])` posts to the Expo push service for every row in `push_tokens` (registered by the app via `/me/push-tokens`), skips owners with `push_notifications_enabled = false`, and deletes tokens Expo reports as `DeviceNotRegistered`. Scheduled senders: `subscriptions:remind` (push alongside the SMS), `notifications:morning` (09:00 IST — renewals due today + dues summary) and `notifications:batch-starts` (every minute, `OwnerAlertService::BATCH_LEAD_MINUTES` before each batch); the latter two dedupe per day through the cache. Tests fake Expo with `Http::fake(['exp.host/*' => ...])`.
 
+**Alerts the owner should be able to read later go through `Services\Notifications\OwnerNotifier::notify()`, not `PushNotifier` directly**: it saves the alert to `owner_notifications` (the app's Alerts inbox, `GET /notifications`) — always, even with push off or no device — and then pushes it. Pass a `dedupe_key` when a job may retry the same alert (the subscription reminder keys on subscription + kind + period end), so the inbox doesn't get it twice while the push still goes out. The morning alerts and plan reminders use it; the batch-start heads-up is deliberately push-only.
+
+### Reports (`Services\Reports\ReportService`)
+`GET /reports?months=3|6|12` builds revenue by month (net of refunds, which are negative payments) and by payment mode, dues by age plus a collection rate, members joined/left/active per month with per-batch occupancy, and 30-day attendance with members not seen for 7+ days. Dues come from `MemberDueService` and occupancy counts match the dashboard, so Reports and Home agree; keep it that way when changing either. "Left" = currently inactive, counted in the month their last seat's `ended_on` falls.
+
 ### Layering (target architecture)
 The API contract is driven by the Expo app in `../mobile-app` (see its `API_CONTRACTS.md` and `src/features/*/types/`). Newer endpoints (dashboard, payments) follow the layering required by `../ai-rules/architecture.md` — thin controllers, business logic in services, data access in repositories; older controllers (members, batches, seats, auth) still query Eloquent inline and are candidates for migration:
 

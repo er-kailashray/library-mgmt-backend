@@ -76,6 +76,12 @@ class User extends Authenticatable
         return $this->hasMany(PushToken::class);
     }
 
+    /** The owner app's Alerts inbox. */
+    public function ownerNotifications()
+    {
+        return $this->hasMany(OwnerNotification::class);
+    }
+
     public function otpVerifications()
     {
         return $this->hasMany(OtpVerification::class);

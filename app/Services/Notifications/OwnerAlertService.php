@@ -4,6 +4,7 @@ namespace App\Services\Notifications;
 
 use App\Models\Batch;
 use App\Models\Library;
+use App\Models\OwnerNotification;
 use App\Notifications\Push\PushNotifier;
 use App\Services\Dues\MemberDue;
 use App\Services\Dues\MemberDueService;
@@ -12,9 +13,10 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Scheduled push notifications for library owners: the morning dues summary, renewals due
- * today, and a heads-up shortly before each batch starts. Every alert is sent at most once per
- * library/batch per day, so re-running a job doesn't notify twice.
+ * Scheduled alerts for library owners: the morning dues summary, renewals due today, and a
+ * heads-up shortly before each batch starts. Every alert is sent at most once per library/batch
+ * per day, so re-running a job doesn't notify twice. The morning ones also go to the owner's
+ * Alerts inbox; the batch heads-up only matters in the moment, so it is push only.
  */
 class OwnerAlertService
 {
@@ -24,14 +26,15 @@ class OwnerAlertService
     public function __construct(
         private readonly MemberDueService $dues,
         private readonly PushNotifier $push,
+        private readonly OwnerNotifier $notifier,
     ) {}
 
-    /** @return int how many notifications were sent */
+    /** @return int how many pushes were delivered */
     public function sendMorningDigests(CarbonInterface $now): int
     {
         $sent = 0;
 
-        $this->notifiableLibraries()->chunkById(100, function ($libraries) use ($now, &$sent) {
+        Library::with('user')->has('user')->chunkById(100, function ($libraries) use ($now, &$sent) {
             foreach ($libraries as $library) {
                 $sent += $this->sendRenewalsDueToday($library, $now) + $this->sendDuesSummary($library, $now);
             }
@@ -84,11 +87,14 @@ class OwnerAlertService
         $names = $today->pluck('memberName')->take(2)->implode(', ');
         $more = $count > 2 ? ' and '.($count - 2).' more' : '';
 
-        return (int) $this->push->sendToUser(
+        return (int) $this->notifier->notify(
             $library->user,
+            $library,
+            OwnerNotification::TYPE_RENEWALS_DUE,
             $count === 1 ? '1 renewal due today' : "{$count} renewals due today",
             "{$names}{$more} · ₹".number_format($today->sum('amount')).' to collect',
-            ['url' => '/payments'],
+            '/payments',
+            "renewals-today:{$library->id}:{$now->toDateString()}",
         );
     }
 
@@ -112,11 +118,14 @@ class OwnerAlertService
             $parts[] = ($upcoming->count() === 1 ? '1 renewal' : "{$upcoming->count()} renewals")." in the next {$windowDays} days";
         }
 
-        return (int) $this->push->sendToUser(
+        return (int) $this->notifier->notify(
             $library->user,
+            $library,
+            OwnerNotification::TYPE_DUES_SUMMARY,
             "Today at {$library->library_name}",
             implode(' · ', $parts),
-            ['url' => $overdue->isNotEmpty() ? '/payments' : '/renewals'],
+            $overdue->isNotEmpty() ? '/payments' : '/renewals',
+            "dues-summary:{$library->id}:{$now->toDateString()}",
         );
     }
 
@@ -124,14 +133,6 @@ class OwnerAlertService
     private function overdue(Library $library, CarbonInterface $now): Collection
     {
         return $this->dues->overdueMembers($library->id, $now);
-    }
-
-    /** Libraries whose owner has notifications on and at least one registered device. */
-    private function notifiableLibraries()
-    {
-        return Library::with('user')->whereHas('user', fn ($query) => $query
-            ->where('push_notifications_enabled', true)
-            ->whereHas('pushTokens'));
     }
 
     /** True the first time a key is seen (kept for two days); false after that. */

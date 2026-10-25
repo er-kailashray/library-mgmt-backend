@@ -6,11 +6,13 @@ use App\Http\Controllers\BatchController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\MemberController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PushNotificationController;
 use App\Http\Controllers\RazorpayWebhookController;
 use App\Http\Controllers\ReminderController;
 use App\Http\Controllers\RenewalController;
+use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SeatController;
 use App\Http\Controllers\SubscriptionController;
 use Illuminate\Support\Facades\Route;
@@ -35,6 +37,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/me/push-tokens', [PushNotificationController::class, 'storeToken']);
     Route::post('/me/push-tokens/remove', [PushNotificationController::class, 'removeToken']);
     Route::post('/me/notification-settings', [PushNotificationController::class, 'updateSettings']);
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/read', [NotificationController::class, 'markRead']);
 
     Route::middleware('library')->group(function () {
         // Always available, so an expired (read-only) library can still pay.
@@ -46,6 +51,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::middleware('subscription')->group(function () {
             Route::get('/dashboard', [DashboardController::class, 'dashboard']);
             Route::get('/collections', [DashboardController::class, 'collections']);
+            Route::get('/reports', [ReportController::class, 'index']);
             Route::get('/members', [MemberController::class, 'index']);
             Route::post('/admission', [MemberController::class, 'admission']);
             Route::get('/batches', [BatchController::class, 'index']);

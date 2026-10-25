@@ -2,10 +2,11 @@
 
 namespace App\Services\Subscriptions;
 
+use App\Models\OwnerNotification;
 use App\Models\Subscription;
 use App\Notifications\DTO\MessageDTO;
-use App\Notifications\Push\PushNotifier;
 use App\Notifications\Services\NotificationService;
+use App\Services\Notifications\OwnerNotifier;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -24,7 +25,7 @@ class SubscriptionReminderService
     public function __construct(
         private readonly SubscriptionService $subscriptions,
         private readonly NotificationService $notifications,
-        private readonly PushNotifier $push,
+        private readonly OwnerNotifier $notifier,
     ) {}
 
     /** @return int how many reminders were sent */
@@ -91,7 +92,16 @@ class SubscriptionReminderService
             $smsSent = false;
         }
 
-        $pushSent = $this->push->sendToUser($owner, $this->title($subscription, $kind), ucfirst($this->message($subscription, $kind)), ['url' => '/subscription']);
+        // Also lands in the Alerts inbox; keyed by period so a retry after a failed send doesn't add it twice.
+        $pushSent = $this->notifier->notify(
+            $owner,
+            $subscription->library,
+            OwnerNotification::TYPE_SUBSCRIPTION,
+            $this->title($subscription, $kind),
+            ucfirst($this->message($subscription, $kind)),
+            '/subscription',
+            "subscription:{$subscription->id}:{$kind}:{$subscription->ends_at->toDateString()}",
+        );
 
         if (! $smsSent && ! $pushSent) {
             return false;

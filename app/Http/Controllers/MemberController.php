@@ -45,11 +45,18 @@ class MemberController extends Controller
             ->orderBy('id')
             ->with(['allocations' => function ($query) use ($library) {
                 $query->where('library_id', $library->id)
-                    ->where('status', 'active');
+                    ->where('status', 'active')
+                    ->with(['batch', 'seat']);
             }])
+            ->withMax('allocations', 'ended_on')
             ->get();
+        // Same dues as Home and the member page, so the amounts on the list always agree.
+        $overdue = $this->dues->overdueMembers($library->id, now());
 
-        $data = $members->map(function ($member) {
+        $data = $members->map(function ($member) use ($overdue) {
+            $due = $overdue->get($member->id);
+            $nextRenewal = $member->allocations->min('renewal_date');
+
             // Determine payment status
             $isDue = $member->allocations->contains(function ($allocation) {
                 return $allocation->renewal_date <= now()->toDateString();
@@ -63,6 +70,25 @@ class MemberController extends Controller
                 'status' => $member->status,
                 'payment_status' => $isDue ? 'Due' : 'Paid',
                 'active_allocations_count' => $member->allocations->count(),
+                // Where they sit now: one entry per batch, in the day's order.
+                'seats' => $member->allocations
+                    ->sortBy(fn ($allocation) => $allocation->batch?->start_time)
+                    ->map(fn ($allocation) => [
+                        'batch_id' => $allocation->batch_id,
+                        'batch_name' => $allocation->batch?->name,
+                        'start_time' => $allocation->batch?->start_time,
+                        'end_time' => $allocation->batch?->end_time,
+                        'seat_number' => $allocation->seat?->seat_number,
+                    ])
+                    ->values(),
+                // What the list shows on the right: what they owe and for how long, else when they renew.
+                'due_amount' => $due?->amount,
+                'days_overdue' => $due?->daysOverdue,
+                'next_renewal_date' => $nextRenewal ? substr((string) $nextRenewal, 0, 10) : null,
+                // When a member who left last held a seat.
+                'left_on' => $member->status === 'inactive' && $member->allocations_max_ended_on
+                    ? substr((string) $member->allocations_max_ended_on, 0, 10)
+                    : null,
                 'outstanding_balance' => $member->outstanding_balance,
             ];
         });
