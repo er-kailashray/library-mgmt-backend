@@ -27,6 +27,26 @@ class SeatMatrixApiTest extends TestCase
             ->assertJsonPath('data.seats.1.batches.0.available', true);
     }
 
+    public function test_taken_seats_say_who_holds_them(): void
+    {
+        $this->travelTo('2026-11-10 10:00:00');
+        $this->createLibrary(seats: 3);
+        $rahul = $this->admit('Rahul Sharma', 1, '2026-11-01');   // renewal passed: due
+        $this->admit('Priya', 2, '2026-12-05');
+
+        $this->actingAs($this->owner)->getJson('/api/seat-matrix')
+            ->assertOk()
+            ->assertJsonPath('data.seats.0.batches.0.occupant', [
+                'member_id' => $rahul->id,
+                'name' => 'Rahul Sharma',
+                'renewal_date' => '2026-11-01',
+                'is_due' => true,
+            ])
+            ->assertJsonPath('data.seats.1.batches.0.occupant.name', 'Priya')
+            ->assertJsonPath('data.seats.1.batches.0.occupant.is_due', false)
+            ->assertJsonPath('data.seats.2.batches.0.occupant', null);
+    }
+
     /**
      * A freshly registered library has seats (created at registration) but no
      * batches yet. This must be a normal empty response, not a 404 - the

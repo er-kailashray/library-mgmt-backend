@@ -36,12 +36,21 @@ class SeatController extends Controller
         $allocations = SeatAllocation::where('library_id', $library->id)
             ->whereIn('batch_id', $batches->pluck('id'))
             ->where('status', 'active')
+            ->with('member:id,name')
             ->get();
 
-        // Index allocations for fast lookup
+        // Index allocations for fast lookup: who holds each seat in each batch.
         $occupied = [];
+        $today = now()->toDateString();
         foreach ($allocations as $allocation) {
-            $occupied[$allocation->seat_id][$allocation->batch_id] = true;
+            $renewal = substr((string) $allocation->renewal_date, 0, 10);
+            $occupied[$allocation->seat_id][$allocation->batch_id] = [
+                'member_id' => $allocation->member_id,
+                'name' => $allocation->member?->name,
+                'renewal_date' => $renewal,
+                // Same rule as the member list: due once the renewal date is reached.
+                'is_due' => $renewal <= $today,
+            ];
         }
 
         // Build matrix
@@ -60,6 +69,7 @@ class SeatController extends Controller
                     'batch_id' => $batch->id,
                     'batch_name' => $batch->name,
                     'available' => ! isset($occupied[$seat->id][$batch->id]),
+                    'occupant' => $occupied[$seat->id][$batch->id] ?? null,
                 ];
             }
 
