@@ -25,6 +25,7 @@ class User extends Authenticatable
         'password',
         'role',
         'profile_photo',
+        'push_notifications_enabled',
     ];
 
     /**
@@ -51,6 +52,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'phone_verified_at' => 'datetime',
             'password' => 'hashed',
+            'push_notifications_enabled' => 'boolean',
         ];
     }
 
@@ -67,6 +69,11 @@ class User extends Authenticatable
     public function libraries()
     {
         return $this->hasMany(Library::class);
+    }
+
+    public function pushTokens()
+    {
+        return $this->hasMany(PushToken::class);
     }
 
     public function otpVerifications()

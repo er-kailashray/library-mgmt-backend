@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PushNotificationController;
 use App\Http\Controllers\RazorpayWebhookController;
 use App\Http\Controllers\ReminderController;
 use App\Http\Controllers\RenewalController;
@@ -18,6 +19,8 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
 Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:6,1');
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:6,1');
+Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:10,1');
 
 // Razorpay -> server confirmation of subscription payments (verified by signature, not login).
 Route::post('/webhooks/razorpay', RazorpayWebhookController::class);
@@ -28,6 +31,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/me', [AuthController::class, 'me']);
     Route::post('/me/update', [AuthController::class, 'updateProfile']);
     Route::post('/me/photo', [AuthController::class, 'uploadPhoto']);
+    Route::post('/me/password', [AuthController::class, 'changePassword']);
+    Route::post('/me/push-tokens', [PushNotificationController::class, 'storeToken']);
+    Route::post('/me/push-tokens/remove', [PushNotificationController::class, 'removeToken']);
+    Route::post('/me/notification-settings', [PushNotificationController::class, 'updateSettings']);
 
     Route::middleware('library')->group(function () {
         // Always available, so an expired (read-only) library can still pay.

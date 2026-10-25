@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Library;
-use App\Models\OtpVerification;
 use App\Models\Seat;
 use App\Models\User;
+use App\Services\Identity\OtpService;
 use App\Services\Subscriptions\SubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,8 +16,7 @@ use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
-    /** Seconds an owner must wait before another OTP can be sent to the same number. */
-    public const OTP_RESEND_COOLDOWN = 30;
+    public function __construct(private readonly OtpService $otps) {}
 
     public function register(Request $request, SubscriptionService $subscriptions)
     {
@@ -33,7 +32,7 @@ class AuthController extends Controller
             ],
             'password' => 'required|string|min:6',
             'library_name' => 'required|string',
-            'total_seats' => 'required|integer|min:1',
+            'total_seats' => 'required|integer|min:1|max:500',
         ]);
 
         DB::beginTransaction();
@@ -75,7 +74,7 @@ class AuthController extends Controller
                 $subscriptions->startTrial($library);
             }
 
-            $this->issueOtp($user, 'register');
+            $this->otps->issue($user, 'register');
 
             DB::commit();
 
@@ -104,37 +103,13 @@ class AuthController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
-        $otpRecord = OtpVerification::where('user_id', $user->id)
-            ->where('type', $request->type)
-            ->where('is_verified', false)
-            ->where('expires_at', '>', now())
-            ->latest('id')
-            ->first();
-
-        if (! $otpRecord) {
-            return response()->json(['message' => 'Invalid or expired OTP'], 400);
-        }
-
-        if ($otpRecord->attempts >= OtpVerification::MAX_ATTEMPTS) {
-            return response()->json(['message' => 'Too many attempts. Please request a new OTP'], 429);
-        }
-
-        if (! Hash::check($request->otp, $otpRecord->otp)) {
-            $otpRecord->increment('attempts');
-
-            return response()->json(['message' => 'Invalid or expired OTP'], 400);
-        }
-
-        $otpRecord->update(['is_verified' => true]);
-
-        // Any OTP sent to the phone proves the owner holds the number.
-        if (! $user->hasVerifiedPhone()) {
-            $user->forceFill(['phone_verified_at' => now()])->save();
+        if ($error = $this->otps->consume($user, $request->type, $request->otp)) {
+            return response()->json(['message' => $error['message']], $error['status']);
         }
 
         // send token if type is login or register for login flow
         if (in_array($request->type, ['login', 'register'])) {
-            $token = $user->createToken('auth_token')->plainTextToken;
+            $token = $this->issueToken($user);
 
             return response()->json([
                 'message' => 'OTP verified successfully',
@@ -163,7 +138,7 @@ class AuthController extends Controller
             return response()->json(['message' => 'This number is already verified. Please sign in.'], 422);
         }
 
-        $wait = $this->otpCooldownRemaining($user, $request->type);
+        $wait = $this->otps->cooldownRemaining($user, $request->type);
 
         if ($wait > 0) {
             return response()->json([
@@ -172,11 +147,11 @@ class AuthController extends Controller
             ], 429);
         }
 
-        $this->issueOtp($user, $request->type);
+        $this->otps->issue($user, $request->type);
 
         return response()->json([
             'message' => 'OTP Sent',
-            'retry_after' => self::OTP_RESEND_COOLDOWN,
+            'retry_after' => OtpService::RESEND_COOLDOWN,
         ]);
     }
 
@@ -195,8 +170,8 @@ class AuthController extends Controller
 
         if (! $user->hasVerifiedPhone()) {
             // Keep the code already sent if it is still fresh, otherwise send a new one.
-            if ($this->otpCooldownRemaining($user, 'register') === 0) {
-                $this->issueOtp($user, 'register');
+            if ($this->otps->cooldownRemaining($user, 'register') === 0) {
+                $this->otps->issue($user, 'register');
             }
 
             return response()->json([
@@ -205,12 +180,99 @@ class AuthController extends Controller
             ], 403);
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
         return response()->json([
             'user' => $user,
-            'token' => $token,
+            'token' => $this->issueToken($user),
         ]);
+    }
+
+    /**
+     * Sends a password-reset code. Also serves as "resend", subject to the same cooldown.
+     */
+    public function forgotPassword(Request $request)
+    {
+        $request->validate([
+            'phone' => 'required|string|regex:/^[6-9]\d{9}$/',
+        ]);
+
+        $user = User::where('phone', $request->phone)->first();
+
+        if (! $user) {
+            return response()->json(['message' => 'No account found with this number'], 404);
+        }
+
+        $wait = $this->otps->cooldownRemaining($user, 'forgot_password');
+
+        if ($wait > 0) {
+            return response()->json([
+                'message' => "Please wait {$wait} seconds before requesting a new code.",
+                'retry_after' => $wait,
+            ], 429);
+        }
+
+        $this->otps->issue($user, 'forgot_password');
+
+        return response()->json([
+            'message' => 'OTP Sent',
+            'retry_after' => OtpService::RESEND_COOLDOWN,
+        ]);
+    }
+
+    /**
+     * Sets a new password using the code from forgotPassword, and signs out every device.
+     */
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'phone' => 'required|string|regex:/^[6-9]\d{9}$/',
+            'otp' => 'required|digits:6',
+            'password' => 'required|string|min:6|confirmed',
+        ]);
+
+        $user = User::where('phone', $request->phone)->first();
+
+        if (! $user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        if ($error = $this->otps->consume($user, 'forgot_password', $request->otp)) {
+            return response()->json(['message' => $error['message']], $error['status']);
+        }
+
+        $user->update(['password' => bcrypt($request->password)]);
+        $user->tokens()->delete();
+
+        return response()->json(['message' => 'Password reset successfully. Please sign in.']);
+    }
+
+    /**
+     * Changes the signed-in owner's password; other devices are signed out, this one stays in.
+     */
+    public function changePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'password' => 'required|string|min:6|confirmed|different:current_password',
+        ]);
+
+        $user = $request->user();
+
+        if (! Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'message' => 'Current password is incorrect',
+                'errors' => ['current_password' => ['Current password is incorrect']],
+            ], 422);
+        }
+
+        $user->update(['password' => bcrypt($request->password)]);
+        $user->tokens()->where('id', '!=', $user->currentAccessToken()->id)->delete();
+
+        return response()->json(['message' => 'Password changed successfully']);
+    }
+
+    private function issueToken(User $user): string
+    {
+        return $user->createToken('auth_token')->plainTextToken;
     }
 
     private function createSeats(Library $library, int $count): void
@@ -226,45 +288,6 @@ class AuthController extends Controller
         }
 
         Seat::insert($seats);
-    }
-
-    /**
-     * Creates a fresh OTP for the user. Verification always checks the newest one,
-     * so earlier unused codes stop working.
-     */
-    private function issueOtp(User $user, string $type): void
-    {
-        $otp = random_int(100000, 999999);
-
-        OtpVerification::create([
-            'user_id' => $user->id,
-            'otp' => Hash::make($otp),
-            'type' => $type,
-            'expires_at' => now()->addMinutes(5),
-            'channel' => 'sms',
-        ]);
-
-        // SMS delivery is disabled for now; the OTP is only written to the log
-        Log::info('Registration OTP generated', [
-            'to' => '+91'.$user->phone,
-            'otp' => $otp,
-        ]);
-    }
-
-    private function otpCooldownRemaining(User $user, string $type): int
-    {
-        $last = OtpVerification::where('user_id', $user->id)
-            ->where('type', $type)
-            ->latest('id')
-            ->first();
-
-        if (! $last) {
-            return 0;
-        }
-
-        $elapsed = (int) $last->created_at->diffInSeconds(now(), true);
-
-        return max(0, self::OTP_RESEND_COOLDOWN - $elapsed);
     }
 
     public function logout(Request $request)

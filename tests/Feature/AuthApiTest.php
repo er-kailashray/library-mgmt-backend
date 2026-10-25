@@ -297,4 +297,110 @@ class AuthApiTest extends TestCase
         $this->postJson('/api/resend-otp', ['phone' => '9876543210', 'type' => 'register'])
             ->assertStatus(422);
     }
+
+    public function test_forgot_password_sends_a_code_and_respects_the_cooldown(): void
+    {
+        $user = User::factory()->create(['phone' => '9876543210']);
+
+        $this->postJson('/api/forgot-password', ['phone' => '9876543210'])
+            ->assertOk()
+            ->assertJsonPath('retry_after', 30);
+
+        $this->postJson('/api/forgot-password', ['phone' => '9876543210'])
+            ->assertStatus(429)
+            ->assertJsonStructure(['retry_after']);
+
+        $this->assertSame(1, OtpVerification::where('user_id', $user->id)->where('type', 'forgot_password')->count());
+    }
+
+    public function test_forgot_password_for_unknown_number_is_404(): void
+    {
+        $this->postJson('/api/forgot-password', ['phone' => '9876543210'])->assertNotFound();
+    }
+
+    public function test_reset_password_with_valid_code_changes_password_and_revokes_tokens(): void
+    {
+        $user = User::factory()->create(['phone' => '9876543210', 'password' => Hash::make('oldpass1')]);
+        $user->createToken('auth_token');
+        OtpVerification::create([
+            'user_id' => $user->id,
+            'otp' => Hash::make('123456'),
+            'type' => 'forgot_password',
+            'expires_at' => now()->addMinutes(5),
+        ]);
+
+        $payload = [
+            'phone' => '9876543210',
+            'otp' => '123456',
+            'password' => 'newpass1',
+            'password_confirmation' => 'newpass1',
+        ];
+
+        $this->postJson('/api/reset-password', $payload)->assertOk();
+        // The code is single-use.
+        $this->postJson('/api/reset-password', $payload)->assertStatus(400);
+
+        $this->assertTrue(Hash::check('newpass1', $user->fresh()->password));
+        $this->assertSame(0, $user->tokens()->count());
+    }
+
+    public function test_reset_password_rejects_a_wrong_or_other_type_code(): void
+    {
+        $user = User::factory()->create(['phone' => '9876543210', 'password' => Hash::make('oldpass1')]);
+        OtpVerification::create([
+            'user_id' => $user->id,
+            'otp' => Hash::make('123456'),
+            'type' => 'register',
+            'expires_at' => now()->addMinutes(5),
+        ]);
+
+        $this->postJson('/api/reset-password', [
+            'phone' => '9876543210',
+            'otp' => '123456',
+            'password' => 'newpass1',
+            'password_confirmation' => 'newpass1',
+        ])->assertStatus(400);
+
+        $this->assertTrue(Hash::check('oldpass1', $user->fresh()->password));
+    }
+
+    public function test_change_password_requires_the_current_password(): void
+    {
+        $user = User::factory()->create(['password' => Hash::make('oldpass1')]);
+
+        $this->actingAs($user)->postJson('/api/me/password', [
+            'current_password' => 'wrongpass',
+            'password' => 'newpass1',
+            'password_confirmation' => 'newpass1',
+        ])->assertStatus(422)->assertJsonValidationErrors('current_password');
+
+        $this->assertTrue(Hash::check('oldpass1', $user->fresh()->password));
+    }
+
+    public function test_change_password_keeps_this_device_and_signs_out_others(): void
+    {
+        $user = User::factory()->create(['password' => Hash::make('oldpass1')]);
+        $user->createToken('other_device');
+        $token = $user->createToken('this_device')->plainTextToken;
+
+        $this->withToken($token)->postJson('/api/me/password', [
+            'current_password' => 'oldpass1',
+            'password' => 'newpass1',
+            'password_confirmation' => 'newpass1',
+        ])->assertOk();
+
+        $this->assertTrue(Hash::check('newpass1', $user->fresh()->password));
+        $this->assertSame(['this_device'], $user->tokens()->pluck('name')->all());
+    }
+
+    public function test_change_password_requires_matching_confirmation(): void
+    {
+        $user = User::factory()->create(['password' => Hash::make('oldpass1')]);
+
+        $this->actingAs($user)->postJson('/api/me/password', [
+            'current_password' => 'oldpass1',
+            'password' => 'newpass1',
+            'password_confirmation' => 'different',
+        ])->assertStatus(422)->assertJsonValidationErrors('password');
+    }
 }

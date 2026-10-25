@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Services\Notifications\OwnerAlertService;
 use App\Services\Subscriptions\SubscriptionReminderService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -12,10 +13,20 @@ Artisan::command('inspire', function () {
 
 Artisan::command('subscriptions:remind', function (SubscriptionReminderService $reminders) {
     $this->info('Sent '.$reminders->sendDue().' subscription reminder(s).');
-})->purpose('SMS owners whose trial/plan is ending, has ended, or has gone read-only');
+})->purpose('SMS + push owners whose trial/plan is ending, has ended, or has gone read-only');
+
+Artisan::command('notifications:morning', function (OwnerAlertService $alerts) {
+    $this->info('Sent '.$alerts->sendMorningDigests(now()).' morning notification(s).');
+})->purpose('Push each owner the renewals due today and a summary of dues');
+
+Artisan::command('notifications:batch-starts', function (OwnerAlertService $alerts) {
+    $this->info('Sent '.$alerts->sendBatchStartAlerts(now()).' batch start notification(s).');
+})->purpose('Push owners a heads-up shortly before each batch starts');
 
 // Needs the scheduler running on the server: `* * * * * php artisan schedule:run` in cron.
 Schedule::command('subscriptions:remind')->dailyAt('09:00')->timezone('Asia/Kolkata')->withoutOverlapping();
+Schedule::command('notifications:morning')->dailyAt('09:00')->timezone('Asia/Kolkata')->withoutOverlapping();
+Schedule::command('notifications:batch-starts')->everyMinute()->withoutOverlapping();
 
 Artisan::command('librum:make-admin {phone : 10-digit phone number used to sign in} {--name=Librum Admin}', function (string $phone) {
     if (! preg_match('/^[6-9]\d{9}$/', $phone)) {

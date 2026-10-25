@@ -35,6 +35,18 @@ return [
         ],
     ],
 
+    // Expo push service. The access token is only needed if "enhanced push security" is on in the Expo project.
+    'expo' => [
+        'push_url' => env('EXPO_PUSH_URL', 'https://exp.host/--/api/v2/push/send'),
+        'access_token' => env('EXPO_ACCESS_TOKEN'),
+    ],
+
+    // Sign-in codes are texted only when this is on (needs a working SMS provider); outside
+    // production they are also written to the log.
+    'otp' => [
+        'sms_enabled' => (bool) env('OTP_SMS_ENABLED', false),
+    ],
+
     // Subscription payments. Keys come from Razorpay Dashboard -> Settings -> API Keys / Webhooks.
     'razorpay' => [
         'key_id' => env('RAZORPAY_KEY_ID'),
