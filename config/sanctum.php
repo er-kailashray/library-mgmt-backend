@@ -47,7 +47,8 @@ return [
     |
     */
 
-    'expiration' => null,
+    // Sign-in tokens last 90 days by default; the app then sends the owner back to sign in.
+    'expiration' => env('SANCTUM_EXPIRATION', 60 * 24 * 90),
 
     /*
     |--------------------------------------------------------------------------

@@ -27,6 +27,8 @@ Artisan::command('notifications:batch-starts', function (OwnerAlertService $aler
 Schedule::command('subscriptions:remind')->dailyAt('09:00')->timezone('Asia/Kolkata')->withoutOverlapping();
 Schedule::command('notifications:morning')->dailyAt('09:00')->timezone('Asia/Kolkata')->withoutOverlapping();
 Schedule::command('notifications:batch-starts')->everyMinute()->withoutOverlapping();
+// Expired sign-in tokens (see sanctum.expiration) are deleted once a day.
+Schedule::command('sanctum:prune-expired --hours=24')->daily();
 
 Artisan::command('librum:make-admin {phone : 10-digit phone number used to sign in} {--name=Librum Admin}', function (string $phone) {
     if (! preg_match('/^[6-9]\d{9}$/', $phone)) {

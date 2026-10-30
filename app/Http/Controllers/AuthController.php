@@ -157,9 +157,10 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
+        // Strings only: arrays or numbers here must never reach the user lookup or password check.
         $request->validate([
-            'phone' => 'required',
-            'password' => 'required',
+            'phone' => 'required|string|max:20',
+            'password' => 'required|string|max:255',
         ]);
 
         $user = User::where('phone', $request->phone)->first();
