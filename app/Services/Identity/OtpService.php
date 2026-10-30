@@ -26,10 +26,14 @@ class OtpService
 
     public function __construct(private readonly NotificationService $notifications) {}
 
-    /** @return bool false only when SMS is on and could not be sent */
-    public function issue(User $user, string $type): bool
+    /**
+     * @param  string|null  $to  another number to text instead of the account's own (a number change)
+     * @return bool false only when SMS is on and could not be sent
+     */
+    public function issue(User $user, string $type, ?string $to = null): bool
     {
         $otp = random_int(100000, 999999);
+        $phone = $to ?? $user->phone;
 
         OtpVerification::create([
             'user_id' => $user->id,
@@ -37,12 +41,13 @@ class OtpService
             'type' => $type,
             'expires_at' => now()->addMinutes(self::EXPIRY_MINUTES),
             'channel' => 'sms',
+            'target' => $to,
         ]);
 
         if (! app()->isProduction()) {
             Log::info('OTP generated', [
                 'type' => $type,
-                'to' => '+91'.$user->phone,
+                'to' => '+91'.$phone,
                 'otp' => $otp,
             ]);
         }
@@ -53,7 +58,7 @@ class OtpService
 
         try {
             $this->notifications->send('sms', new MessageDTO(
-                to: '+91'.$user->phone,
+                to: '+91'.$phone,
                 message: "{$otp} is your verification code. It expires in ".self::EXPIRY_MINUTES.' minutes. Do not share it with anyone.',
             ));
         } catch (\Throwable $e) {
@@ -86,10 +91,12 @@ class OtpService
      *
      * @return array{message: string, status: int}|null the error to return, or null when valid
      */
-    public function consume(User $user, string $type, string $otp): ?array
+    public function consume(User $user, string $type, string $otp, ?string $target = null): ?array
     {
         $record = OtpVerification::where('user_id', $user->id)
             ->where('type', $type)
+            // A code sent to another number only proves that number.
+            ->when($target !== null, fn ($query) => $query->where('target', $target))
             ->where('is_verified', false)
             ->where('expires_at', '>', now())
             ->latest('id')

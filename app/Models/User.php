@@ -37,6 +37,7 @@ class User extends Authenticatable
         'password',
         'remember_token',
         'profile_photo',
+        'registration_token_hash',
     ];
 
     protected $appends = ['profile_photo_url'];

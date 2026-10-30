@@ -17,6 +17,7 @@ class OtpVerification extends Model
         'expires_at',
         'attempts',
         'channel',
+        'target',
     ];
 
     protected $casts = [

@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
@@ -39,6 +40,16 @@ class AuthController extends Controller
 
         try {
             $user = User::where('phone', $request->phone)->first();
+
+            // Registering the same pending number again can't be used to text it over and over.
+            if ($user && ($wait = $this->otps->cooldownRemaining($user, 'register')) > 0) {
+                DB::rollBack();
+
+                return response()->json([
+                    'message' => "Please wait {$wait} seconds before trying again.",
+                    'retry_after' => $wait,
+                ], 429);
+            }
 
             if ($user) {
                 $user->update([
@@ -74,12 +85,15 @@ class AuthController extends Controller
                 $subscriptions->startTrial($library);
             }
 
+            $registrationToken = $this->startRegistration($user);
             $this->otps->issue($user, 'register');
 
             DB::commit();
 
             return response()->json([
                 'message' => 'OTP Sent',
+                // Sent back with the code: only this device can finish this sign-up.
+                'registration_token' => $registrationToken,
             ]);
         } catch (\Exception $e) {
             Log::error($e);
@@ -95,6 +109,7 @@ class AuthController extends Controller
             'phone' => 'required|string|regex:/^[6-9]\d{9}$/',
             'otp' => 'required|digits:6',
             'type' => 'required|in:register,forgot_password,login',
+            'registration_token' => 'nullable|string|max:100',
         ]);
 
         $user = User::where('phone', $request->phone)->first();
@@ -103,8 +118,24 @@ class AuthController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        // If this number was registered again on another device, this device's sign-up is void -
+        // otherwise a code typed here would verify an account with someone else's password.
+        if ($request->type === 'register' && ! $user->hasVerifiedPhone()) {
+            $token = (string) $request->input('registration_token', '');
+            if ($user->registration_token_hash === null || $token === '' || ! hash_equals($user->registration_token_hash, hash('sha256', $token))) {
+                return response()->json([
+                    'message' => 'This sign-up was started again on another device. Please register again.',
+                    'restart_registration' => true,
+                ], 403);
+            }
+        }
+
         if ($error = $this->otps->consume($user, $request->type, $request->otp)) {
             return response()->json(['message' => $error['message']], $error['status']);
+        }
+
+        if ($user->registration_token_hash !== null) {
+            $user->forceFill(['registration_token_hash' => null])->save();
         }
 
         // send token if type is login or register for login flow
@@ -178,6 +209,8 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Please verify your phone number to continue.',
                 'requires_verification' => true,
+                // The password is proven, so this device may finish the sign-up.
+                'registration_token' => $this->startRegistration($user),
             ], 403);
         }
 
@@ -271,6 +304,70 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password changed successfully']);
     }
 
+    /**
+     * Step 1 of changing the owner's number: their password, then a code texted to the new number.
+     */
+    public function requestPhoneChange(Request $request)
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^[6-9]\d{9}$/', Rule::unique('users', 'phone')],
+            'current_password' => 'required|string',
+        ]);
+
+        if (! Hash::check($validated['current_password'], $user->password)) {
+            return response()->json([
+                'message' => 'Current password is incorrect',
+                'errors' => ['current_password' => ['Current password is incorrect']],
+            ], 422);
+        }
+
+        $wait = $this->otps->cooldownRemaining($user, 'phone_change');
+        if ($wait > 0) {
+            return response()->json([
+                'message' => "Please wait {$wait} seconds before requesting a new code.",
+                'retry_after' => $wait,
+            ], 429);
+        }
+
+        $this->otps->issue($user, 'phone_change', $validated['phone']);
+
+        return response()->json([
+            'message' => 'OTP Sent',
+            'retry_after' => OtpService::RESEND_COOLDOWN,
+        ]);
+    }
+
+    /** Step 2: the code from the new number switches the account to it. */
+    public function verifyPhoneChange(Request $request)
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^[6-9]\d{9}$/', Rule::unique('users', 'phone')],
+            'otp' => 'required|digits:6',
+        ]);
+
+        if ($error = $this->otps->consume($user, 'phone_change', $validated['otp'], $validated['phone'])) {
+            return response()->json(['message' => $error['message']], $error['status']);
+        }
+
+        $user->forceFill(['phone' => $validated['phone'], 'phone_verified_at' => now()])->save();
+
+        return response()->json([
+            'message' => 'Phone number changed',
+            'user' => $user,
+        ]);
+    }
+
+    /** A fresh sign-up token for this device; any earlier one stops working. */
+    private function startRegistration(User $user): string
+    {
+        $token = Str::random(40);
+        $user->forceFill(['registration_token_hash' => hash('sha256', $token)])->save();
+
+        return $token;
+    }
+
     private function issueToken(User $user): string
     {
         return $user->createToken('auth_token')->plainTextToken;
@@ -309,14 +406,14 @@ class AuthController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:100',
-            'phone' => [
-                'required',
-                'regex:/^[6-9]\d{9}$/',
-                Rule::unique('users', 'phone')->ignore($user->id),
-            ],
+            // Accepted only when unchanged (older apps send it); a new number goes through
+            // /me/phone/request and /me/phone/verify, which prove both the password and the number.
+            'phone' => ['nullable', 'string', Rule::in([$user->phone])],
+        ], [
+            'phone.in' => 'To change your phone number, confirm it with a code sent to the new number.',
         ]);
 
-        $user->update($validated);
+        $user->update(['name' => $validated['name']]);
 
         return response()->json([
             'message' => 'Profile updated',

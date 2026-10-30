@@ -29,13 +29,13 @@ class AuthApiTest extends TestCase
                 return $context['to'] === '+919876543210';
             });
 
-        $this->postJson('/api/register', [
+        $registrationToken = $this->postJson('/api/register', [
             'name' => 'Owner',
             'phone' => '9876543210',
             'password' => 'secret123',
             'library_name' => 'Test Library',
             'total_seats' => 3,
-        ])->assertOk();
+        ])->assertOk()->json('registration_token');
 
         $user = User::where('phone', '9876543210')->first();
         $this->assertCount(3, $user->libraries()->first()->seats);
@@ -44,6 +44,7 @@ class AuthApiTest extends TestCase
             'phone' => '9876543210',
             'otp' => (string) $loggedOtp,
             'type' => 'register',
+            'registration_token' => $registrationToken,
         ])->assertOk()->assertJsonStructure(['token']);
 
         $this->assertTrue(OtpVerification::where('user_id', $user->id)->first()->is_verified);
@@ -91,29 +92,64 @@ class AuthApiTest extends TestCase
         ])->assertStatus(429);
     }
 
-    public function test_can_update_own_name_and_phone(): void
+    public function test_can_update_own_name(): void
     {
         $user = User::factory()->create(['name' => 'Asha Owner', 'phone' => '9876543210']);
 
         $this->actingAs($user)->postJson('/api/me/update', [
             'name' => 'Asha K. Owner',
-            'phone' => '9123456780',
+            'phone' => '9876543210',
         ])->assertOk()->assertJsonPath('user.name', 'Asha K. Owner');
 
-        $user->refresh();
-        $this->assertSame('Asha K. Owner', $user->name);
-        $this->assertSame('9123456780', $user->phone);
+        $this->assertSame('Asha K. Owner', $user->fresh()->name);
     }
 
-    public function test_cannot_update_phone_to_one_already_used_by_another_user(): void
+    public function test_profile_update_cannot_change_the_phone_number(): void
     {
-        User::factory()->create(['phone' => '9876500001']);
         $user = User::factory()->create(['phone' => '9876543210']);
 
         $this->actingAs($user)->postJson('/api/me/update', [
             'name' => $user->name,
-            'phone' => '9876500001',
+            'phone' => '9123456780',
         ])->assertStatus(422)->assertJsonValidationErrors('phone');
+
+        $this->assertSame('9876543210', $user->fresh()->phone);
+    }
+
+    public function test_changing_the_number_needs_the_password_and_a_code_from_the_new_number(): void
+    {
+        $user = User::factory()->create(['phone' => '9876543210', 'password' => Hash::make('secret123')]);
+
+        $this->actingAs($user)->postJson('/api/me/phone/request', ['phone' => '9123456780', 'current_password' => 'wrong'])
+            ->assertStatus(422)->assertJsonValidationErrors('current_password');
+
+        $sentTo = null;
+        $code = null;
+        Log::shouldReceive('info')->once()->withArgs(function ($message, $context) use (&$sentTo, &$code) {
+            $sentTo = $context['to'];
+            $code = (string) $context['otp'];
+
+            return true;
+        });
+        $this->actingAs($user)->postJson('/api/me/phone/request', ['phone' => '9123456780', 'current_password' => 'secret123'])->assertOk();
+        $this->assertSame('+919123456780', $sentTo);
+
+        // The code only confirms the number it was sent to.
+        $this->actingAs($user)->postJson('/api/me/phone/verify', ['phone' => '9000000009', 'otp' => $code])->assertStatus(400);
+        $this->actingAs($user)->postJson('/api/me/phone/verify', ['phone' => '9123456780', 'otp' => '000000'])->assertStatus(400);
+        $this->assertSame('9876543210', $user->fresh()->phone);
+
+        $this->actingAs($user)->postJson('/api/me/phone/verify', ['phone' => '9123456780', 'otp' => $code])
+            ->assertOk()->assertJsonPath('user.phone', '9123456780');
+    }
+
+    public function test_cannot_change_to_a_number_another_account_uses(): void
+    {
+        User::factory()->create(['phone' => '9876500001']);
+        $user = User::factory()->create(['phone' => '9876543210', 'password' => Hash::make('secret123')]);
+
+        $this->actingAs($user)->postJson('/api/me/phone/request', ['phone' => '9876500001', 'current_password' => 'secret123'])
+            ->assertStatus(422)->assertJsonValidationErrors('phone');
     }
 
     public function test_update_profile_requires_authentication(): void
@@ -181,7 +217,7 @@ class AuthApiTest extends TestCase
 
     public function test_verifying_the_register_otp_marks_the_phone_verified(): void
     {
-        $user = User::factory()->phoneUnverified()->create(['phone' => '9876543210']);
+        $user = User::factory()->phoneUnverified()->create(['phone' => '9876543210', 'registration_token_hash' => hash('sha256', 'device-token')]);
         OtpVerification::create([
             'user_id' => $user->id,
             'otp' => Hash::make('123456'),
@@ -189,16 +225,50 @@ class AuthApiTest extends TestCase
             'expires_at' => now()->addMinutes(5),
         ]);
 
+        // Without this device's sign-up token the right code still doesn't verify.
         $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '123456', 'type' => 'register'])
+            ->assertForbidden()->assertJsonPath('restart_registration', true);
+
+        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '123456', 'type' => 'register', 'registration_token' => 'device-token'])
             ->assertOk()
             ->assertJsonStructure(['token', 'user']);
 
         $this->assertNotNull($user->fresh()->phone_verified_at);
+        $this->assertNull($user->fresh()->registration_token_hash);
+    }
+
+    public function test_someone_re_registering_a_pending_number_cannot_take_it_over(): void
+    {
+        $codes = [];
+        Log::shouldReceive('info')->withArgs(function ($message, $context) use (&$codes) {
+            $codes[] = (string) $context['otp'];
+
+            return true;
+        });
+
+        // The real owner starts signing up...
+        $ownerToken = $this->postJson('/api/register', $this->registerPayload(['password' => 'owner-pass']))->json('registration_token');
+
+        // ...and an attacker registers the same number with their own password.
+        $this->travel(31)->seconds();
+        $this->postJson('/api/register', $this->registerPayload(['password' => 'attacker-pass']))->assertOk();
+
+        // The owner types the newest code they received: it no longer verifies on their device.
+        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => end($codes), 'type' => 'register', 'registration_token' => $ownerToken])
+            ->assertForbidden();
+        $this->assertFalse(User::where('phone', '9876543210')->first()->hasVerifiedPhone());
+
+        // So the attacker's password never becomes a working sign-in.
+        $this->postJson('/api/login', ['phone' => '9876543210', 'password' => 'attacker-pass'])->assertForbidden();
     }
 
     public function test_unverified_number_can_register_again_and_gets_a_new_code(): void
     {
         $this->postJson('/api/register', $this->registerPayload())->assertOk();
+
+        // Not straight away: that would let anyone text the number over and over.
+        $this->postJson('/api/register', $this->registerPayload())->assertStatus(429);
+        $this->travel(31)->seconds();
 
         $this->postJson('/api/register', $this->registerPayload([
             'name' => 'Owner Again',
@@ -237,6 +307,7 @@ class AuthApiTest extends TestCase
             ->assertForbidden()
             ->assertJsonPath('requires_verification', true)
             ->assertJsonMissingPath('token');
+        $this->assertNotNull($user->fresh()->registration_token_hash);
 
         $this->assertSame(1, OtpVerification::where('user_id', $user->id)->where('type', 'register')->count());
     }
@@ -270,7 +341,7 @@ class AuthApiTest extends TestCase
 
     public function test_only_the_newest_code_works_after_a_resend(): void
     {
-        $user = User::factory()->phoneUnverified()->create(['phone' => '9876543210']);
+        $user = User::factory()->phoneUnverified()->create(['phone' => '9876543210', 'registration_token_hash' => hash('sha256', 'device-token')]);
         OtpVerification::create([
             'user_id' => $user->id,
             'otp' => Hash::make('111111'),
@@ -284,9 +355,9 @@ class AuthApiTest extends TestCase
             'expires_at' => now()->addMinutes(5),
         ]);
 
-        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '111111', 'type' => 'register'])
+        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '111111', 'type' => 'register', 'registration_token' => 'device-token'])
             ->assertStatus(400);
-        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '222222', 'type' => 'register'])
+        $this->postJson('/api/verify-otp', ['phone' => '9876543210', 'otp' => '222222', 'type' => 'register', 'registration_token' => 'device-token'])
             ->assertOk();
     }
 

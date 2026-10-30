@@ -36,6 +36,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/me/update', [AuthController::class, 'updateProfile']);
     Route::post('/me/photo', [AuthController::class, 'uploadPhoto']);
     Route::post('/me/password', [AuthController::class, 'changePassword']);
+    Route::post('/me/phone/request', [AuthController::class, 'requestPhoneChange'])->middleware('throttle:6,1');
+    Route::post('/me/phone/verify', [AuthController::class, 'verifyPhoneChange'])->middleware('throttle:10,1');
     Route::post('/me/push-tokens', [PushNotificationController::class, 'storeToken']);
     Route::post('/me/push-tokens/remove', [PushNotificationController::class, 'removeToken']);
     Route::post('/me/notification-settings', [PushNotificationController::class, 'updateSettings']);
