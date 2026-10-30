@@ -187,6 +187,49 @@ class AttendanceApiTest extends TestCase
             ->assertJsonPath('data.batches.1.members.0.status', null);
     }
 
+    public function test_after_midnight_an_overnight_batch_is_checked_in_now_on_the_day_it_began(): void
+    {
+        $night = \App\Models\Batch::create(['library_id' => $this->library->id, 'name' => 'Night', 'start_time' => '22:00', 'end_time' => '02:00', 'monthly_fee' => 800]);
+        $member = $this->admit('Rahul Sharma', 1, '2026-11-01', $night);
+
+        // 1 AM on the 21st: the Night batch that began at 10 PM on the 20th is still on.
+        $this->travelTo('2026-10-21 01:05:00');
+        $this->actingAs($this->owner)
+            ->postJson('/api/attendance', ['member_id' => $member->id, 'batch_id' => $night->id, 'date' => '2026-10-20', 'status' => 'present'])
+            ->assertOk()
+            ->assertJsonPath('data.check_in_at', '01:05');
+
+        $this->actingAs($this->owner)->getJson('/api/attendance?date=2026-10-20')
+            ->assertJsonPath('data.batches.1.is_running', true)
+            ->assertJsonPath('data.batches.1.members.0.status', 'present');
+
+        // Once it's over, that day needs a time again.
+        $this->travelTo('2026-10-21 03:00:00');
+        $this->actingAs($this->owner)
+            ->postJson('/api/attendance', ['member_id' => $member->id, 'batch_id' => $night->id, 'date' => '2026-10-20', 'status' => 'present'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('check_in_at');
+    }
+
+    public function test_live_session_names_the_running_batch_and_the_day_it_belongs_to(): void
+    {
+        $night = \App\Models\Batch::create(['library_id' => $this->library->id, 'name' => 'Night', 'start_time' => '22:00', 'end_time' => '02:00', 'monthly_fee' => 800]);
+
+        // 10 AM: the Morning batch (08:00-12:00), today.
+        $this->actingAs($this->owner)->getJson('/api/attendance')
+            ->assertJsonPath('data.live_session', ['date' => '2026-10-20', 'batch_id' => $this->batch->id]);
+
+        // 1 AM next day: still the 20th's Night batch.
+        $this->travelTo('2026-10-21 01:00:00');
+        $this->actingAs($this->owner)->getJson('/api/attendance')
+            ->assertJsonPath('data.date', '2026-10-21')
+            ->assertJsonPath('data.live_session', ['date' => '2026-10-20', 'batch_id' => $night->id]);
+
+        // 3 AM: nothing on.
+        $this->travelTo('2026-10-21 03:00:00');
+        $this->actingAs($this->owner)->getJson('/api/attendance')->assertJsonPath('data.live_session', null);
+    }
+
     public function test_cannot_mark_attendance_for_another_librarys_member(): void
     {
         $myOwner = $this->owner;

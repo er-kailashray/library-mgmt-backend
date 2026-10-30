@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreAttendanceRequest;
+use App\Models\Batch;
 use App\Models\Member;
 use App\Models\SeatAllocation;
 use App\Services\Attendance\AttendanceService;
@@ -24,6 +25,9 @@ class AttendanceController extends Controller
                 'date' => $date,
                 // Marks can only be added or changed from this day up to today.
                 'editable_from' => AttendanceService::earliestEditableDate()->toDateString(),
+                // The session on right now and the day it belongs to (after midnight an overnight
+                // batch is still yesterday's), so the app can open on it.
+                'live_session' => $this->attendance->liveSession($this->library($request)),
                 'batches' => $this->attendance->roster($this->library($request), $date),
             ],
         ]);
@@ -54,10 +58,12 @@ class AttendanceController extends Controller
             ], 422);
         }
 
-        // Today, "now" is when they came; for an earlier day the time has to be given.
+        // While the batch is on, "now" is when they came - today, or an overnight batch that began
+        // yesterday and is still running after midnight. For anything earlier the time has to be given.
         $checkInAt = $data['check_in_at'] ?? null;
         if ($data['status'] === 'present' && ! $checkInAt) {
-            if ($date !== now()->toDateString()) {
+            $isLive = $date === now()->toDateString() || $this->attendance->isRunning(Batch::findOrFail($data['batch_id']), $date);
+            if (! $isLive) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Pick the time they came in.',

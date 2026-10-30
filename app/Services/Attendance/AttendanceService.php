@@ -113,6 +113,37 @@ class AttendanceService
             ->delete();
     }
 
+    /** Whether a batch's session for this day is on right now (an overnight one runs into the next morning). */
+    public function isRunning(Batch $batch, string $date, ?CarbonInterface $now = null): bool
+    {
+        $now = Carbon::instance($now ?? now());
+        [$startsAt, $endsAt] = $this->batchWindow($batch, Carbon::parse($date)->startOfDay());
+
+        return $now->gte($startsAt) && $now->lt($endsAt);
+    }
+
+    /**
+     * The session on right now, and the day it belongs to: after midnight, a 10 PM - 2 AM batch is
+     * still the previous day's. Today's sessions are checked first; null when nothing is running.
+     *
+     * @return array{date: string, batch_id: int}|null
+     */
+    public function liveSession(Library $library, ?CarbonInterface $now = null): ?array
+    {
+        $now = Carbon::instance($now ?? now());
+        $batches = Batch::where('library_id', $library->id)->orderBy('start_time')->get();
+
+        foreach ([$now->copy()->startOfDay(), $now->copy()->startOfDay()->subDay()] as $day) {
+            foreach ($batches as $batch) {
+                if ($this->isRunning($batch, $day->toDateString(), $now)) {
+                    return ['date' => $day->toDateString(), 'batch_id' => $batch->id];
+                }
+            }
+        }
+
+        return null;
+    }
+
     /** The first day that can still be marked or corrected. */
     public static function earliestEditableDate(?CarbonInterface $now = null): Carbon
     {
