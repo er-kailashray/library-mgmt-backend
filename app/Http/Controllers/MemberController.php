@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\PaymentStatus;
+use App\Http\Requests\ChangeSeatRequest;
 use App\Models\Batch;
 use App\Models\Library;
 use App\Models\Member;
@@ -13,6 +14,8 @@ use App\Services\Dues\MemberDueService;
 use App\Services\Dues\MonthlyFeeService;
 use App\Services\Payments\PaymentService;
 use App\Services\Reminders\ReminderService;
+use App\Services\Seats\SeatBlockService;
+use App\Services\Seats\SeatChangeService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -26,6 +29,8 @@ class MemberController extends Controller
         private readonly ReminderService $reminders,
         private readonly MemberDueService $dues,
         private readonly PaymentService $payments,
+        private readonly SeatChangeService $seatChanges,
+        private readonly SeatBlockService $seatBlocks,
     ) {}
 
     public function index()
@@ -193,6 +198,13 @@ class MemberController extends Controller
                     return response()->json([
                         'status' => false,
                         'message' => "Seat {$seat->seat_number} already occupied in batch {$batch->name}",
+                    ], 422);
+                }
+
+                if ($this->seatBlocks->isBlocked($library->id, $seat->id, $batch->id, now())) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => "Seat {$seat->seat_number} is blocked in {$batch->name} right now. Pick another seat.",
                     ], 422);
                 }
             }
@@ -379,7 +391,8 @@ class MemberController extends Controller
                 'id_proof_type' => $member->id_proof_type,
                 'has_id_proof_front' => (bool) $member->id_proof_front_path,
                 'has_id_proof_back' => (bool) $member->id_proof_back_path,
-                'allocations' => $member->allocations->map(function ($allocation) {
+                // In the day's order (like the member list), so a seat change doesn't push a batch to the end.
+                'allocations' => $member->allocations->sortBy(fn ($allocation) => $allocation->batch?->start_time)->values()->map(function ($allocation) {
                     return [
                         'batch_id' => $allocation->batch_id,
                         'batch_name' => $allocation->batch->name,
@@ -562,6 +575,30 @@ class MemberController extends Controller
         $this->payments->restart($member, \Carbon\Carbon::parse($request->start_date));
 
         return response()->json(['status' => true, 'message' => 'Membership restarted']);
+    }
+
+    /** Moves an active member to another free seat in the same batch; fees and renewal date stay as they are. */
+    public function changeSeat(ChangeSeatRequest $request, int $id)
+    {
+        $member = Member::where('library_id', $this->library($request)->id)->where('status', 'active')->find($id);
+
+        if (! $member) {
+            return response()->json(['status' => false, 'message' => 'Member not found'], 404);
+        }
+
+        $allocation = $this->seatChanges->change($member, (int) $request->batch_id, (int) $request->seat_id);
+
+        return response()->json([
+            'status' => true,
+            'message' => "Moved to seat {$allocation->seat->seat_number}",
+            'data' => [
+                'batch_id' => $allocation->batch_id,
+                'batch_name' => $allocation->batch->name,
+                'seat_id' => $allocation->seat_id,
+                'seat_number' => $allocation->seat->seat_number,
+                'renewal_date' => $allocation->renewal_date,
+            ],
+        ]);
     }
 
     /**

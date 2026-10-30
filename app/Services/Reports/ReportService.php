@@ -10,6 +10,7 @@ use App\Models\Payment;
 use App\Models\SeatAllocation;
 use App\Services\Dues\MemberDue;
 use App\Services\Dues\MemberDueService;
+use App\Services\Seats\SeatBlockService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -40,7 +41,10 @@ class ReportService
         ['older', 'Over 60 days', 61, null],
     ];
 
-    public function __construct(private readonly MemberDueService $dues) {}
+    public function __construct(
+        private readonly MemberDueService $dues,
+        private readonly SeatBlockService $blocks,
+    ) {}
 
     /** @return array<string, mixed> */
     public function build(Library $library, int $months, CarbonInterface $now): array
@@ -181,19 +185,25 @@ class ReportService
         })->values();
 
         $totalSeats = $library->seats()->count();
+        // Same as Home: seats blocked today are left out of a batch's total.
+        $blocked = $this->blocks->blockedCounts($library->id, $batches, $today);
 
         return [
             'active' => $members->where('status', 'active')->count(),
             'by_month' => $months,
-            'occupancy' => $batches->map(fn (Batch $batch) => [
-                'batch_id' => $batch->id,
-                'name' => $batch->name,
-                'start_time' => $batch->start_time,
-                'end_time' => $batch->end_time,
-                'occupied' => (int) $batch->occupied,
-                'total' => $totalSeats,
-                'rate' => $totalSeats > 0 ? (int) round($batch->occupied / $totalSeats * 100) : 0,
-            ])->values(),
+            'occupancy' => $batches->map(function (Batch $batch) use ($totalSeats, $blocked) {
+                $total = $totalSeats - ($blocked[$batch->id] ?? 0);
+
+                return [
+                    'batch_id' => $batch->id,
+                    'name' => $batch->name,
+                    'start_time' => $batch->start_time,
+                    'end_time' => $batch->end_time,
+                    'occupied' => (int) $batch->occupied,
+                    'total' => $total,
+                    'rate' => $total > 0 ? (int) round($batch->occupied / $total * 100) : 0,
+                ];
+            })->values(),
         ];
     }
 

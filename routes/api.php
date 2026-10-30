@@ -13,6 +13,7 @@ use App\Http\Controllers\RazorpayWebhookController;
 use App\Http\Controllers\ReminderController;
 use App\Http\Controllers\RenewalController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\SeatBlockController;
 use App\Http\Controllers\SeatController;
 use App\Http\Controllers\SubscriptionController;
 use Illuminate\Support\Facades\Route;
@@ -59,6 +60,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/batches/{id}/update', [BatchController::class, 'update']);
             Route::delete('/batches/{id}', [BatchController::class, 'destroy']);
             Route::get('/seat-matrix', [SeatController::class, 'index']);
+            Route::post('/seats/{id}/block', [SeatBlockController::class, 'store']);
+            Route::delete('/seat-blocks/{id}', [SeatBlockController::class, 'destroy']);
             Route::get('/payments', [PaymentController::class, 'index']);
             Route::post('/payments', [PaymentController::class, 'store']);
             Route::get('/members/{id}', [MemberController::class, 'show']);
@@ -68,6 +71,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('/members/{id}/id-proof/{side?}', [MemberController::class, 'deleteIdProof']);
             Route::post('/members/{id}/deactivate', [MemberController::class, 'deactivate']);
             Route::post('/members/{id}/restart', [MemberController::class, 'restart']);
+            Route::post('/members/{id}/change-seat', [MemberController::class, 'changeSeat']);
             Route::post('/members/{id}/remind', [MemberController::class, 'remind']);
             Route::post('/reminders/overdue', [ReminderController::class, 'overdue']);
             Route::get('/renewals/upcoming', [RenewalController::class, 'index']);

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Batch;
 use App\Models\Seat;
 use App\Models\SeatAllocation;
+use App\Models\SeatBlock;
 use Illuminate\Http\Request;
 
 class SeatController extends Controller
@@ -53,6 +54,10 @@ class SeatController extends Controller
             ];
         }
 
+        // Blocked seats: in force today per batch, and every current or upcoming block per seat (to list and remove).
+        $blocks = SeatBlock::where('library_id', $library->id)->currentOrUpcoming(now())->orderBy('starts_on')->get()->groupBy('seat_id');
+        $todayStart = now()->startOfDay();
+
         // Build matrix
         $matrix = [];
 
@@ -62,14 +67,19 @@ class SeatController extends Controller
                 'seat_id' => $seat->id,
                 'seat_number' => $seat->seat_number,
                 'batches' => [],
+                'blocks' => $blocks->get($seat->id, collect())->map->toApi()->values(),
             ];
 
             foreach ($batches as $batch) {
+                $blocked = $blocks->get($seat->id, collect())
+                    ->first(fn (SeatBlock $block) => $block->covers($batch->id) && $block->starts_on->lte($todayStart));
                 $seatData['batches'][] = [
                     'batch_id' => $batch->id,
                     'batch_name' => $batch->name,
-                    'available' => ! isset($occupied[$seat->id][$batch->id]),
+                    // Blocked seats aren't free to admit into or move to.
+                    'available' => ! isset($occupied[$seat->id][$batch->id]) && ! $blocked,
                     'occupant' => $occupied[$seat->id][$batch->id] ?? null,
+                    'blocked' => $blocked?->toApi(),
                 ];
             }
 
