@@ -18,6 +18,7 @@ class Payment extends Model
         'seats',
         'payment_mode',
         'notes',
+        'idempotency_key',
     ];
 
     protected $casts = [

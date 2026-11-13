@@ -66,6 +66,19 @@ class PaymentService
     public function record(Library $library, array $data): Payment
     {
         return DB::transaction(function () use ($library, $data) {
+            // One payment at a time per member: two requests arriving together (double tap, a retry
+            // racing the original) would otherwise both read the same paid-through date.
+            Member::whereKey($data['member_id'])->lockForUpdate()->first();
+
+            // A retry of a payment that was already saved returns that payment instead of a second one.
+            $key = $data['idempotency_key'] ?? null;
+            if ($key !== null) {
+                $existing = Payment::where('library_id', $library->id)->where('idempotency_key', $key)->first();
+                if ($existing) {
+                    return $existing->load('member');
+                }
+            }
+
             $allocations = $this->allocations->activeForMember($data['member_id']);
             $monthlyFee = (float) $allocations->sum(fn ($allocation) => $allocation->batch->monthly_fee);
             $periodStart = $this->paidThrough($allocations) ?? now()->startOfDay();
@@ -91,6 +104,7 @@ class PaymentService
                 'seats' => self::seatSnapshot($allocations),
                 'payment_mode' => $data['payment_mode'] ?? null,
                 'notes' => $data['notes'] ?? null,
+                'idempotency_key' => $key,
             ]);
 
             if ($monthsCovered >= 1) {

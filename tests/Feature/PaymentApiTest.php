@@ -55,6 +55,32 @@ class PaymentApiTest extends TestCase
         $this->assertSame('2026-11-10', SeatAllocation::where('member_id', $member->id)->value('renewal_date'));
     }
 
+    public function test_retrying_with_the_same_key_records_the_payment_once(): void
+    {
+        $member = $this->admit('Due Member', 1, '2026-10-10');
+        $body = ['member_id' => $member->id, 'amount' => 1500, 'payment_mode' => 'cash', 'idempotency_key' => 'attempt-1'];
+
+        $first = $this->actingAs($this->owner)->postJson('/api/payments', $body)->assertCreated()->json('data.id');
+        // The app timed out and the owner tapped Save again: same key, so the same payment comes back.
+        $second = $this->actingAs($this->owner)->postJson('/api/payments', $body)->assertCreated()->json('data.id');
+
+        $this->assertSame($first, $second);
+        $this->assertSame(1, \App\Models\Payment::where('member_id', $member->id)->count());
+        $this->assertSame('2026-11-10', SeatAllocation::where('member_id', $member->id)->value('renewal_date'));
+    }
+
+    public function test_a_new_key_records_another_payment(): void
+    {
+        $member = $this->admit('Due Member', 1, '2026-10-10');
+        $body = ['member_id' => $member->id, 'amount' => 1500, 'payment_mode' => 'cash'];
+
+        $this->actingAs($this->owner)->postJson('/api/payments', $body + ['idempotency_key' => 'attempt-1'])->assertCreated();
+        $this->actingAs($this->owner)->postJson('/api/payments', $body + ['idempotency_key' => 'attempt-2'])->assertCreated();
+
+        $this->assertSame(2, \App\Models\Payment::where('member_id', $member->id)->count());
+        $this->assertSame('2026-12-10', SeatAllocation::where('member_id', $member->id)->value('renewal_date'));
+    }
+
     public function test_short_payment_is_partial_and_keeps_renewal(): void
     {
         $member = $this->admit('Due Member', 1, '2026-10-10');

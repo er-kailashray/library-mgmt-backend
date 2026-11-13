@@ -199,6 +199,54 @@ class SubscriptionCheckoutTest extends TestCase
             ->assertJsonPath('data.0.amount', 2999);
     }
 
+    public function test_starting_checkout_twice_reuses_the_unpaid_order(): void
+    {
+        $first = $this->startCheckout('yearly');
+        $second = $this->startCheckout('yearly');
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, SubscriptionPayment::count());
+        Http::assertSentCount(1);
+    }
+
+    public function test_a_different_plan_or_an_old_order_gets_a_new_order(): void
+    {
+        $yearly = $this->startCheckout('yearly');
+        $monthly = $this->startCheckout('monthly');
+        $this->assertNotSame($yearly->id, $monthly->id);
+
+        $this->travel(3)->hours();
+        $this->assertNotSame($yearly->id, $this->startCheckout('yearly')->id);
+    }
+
+    public function test_a_late_failure_never_overwrites_a_paid_payment(): void
+    {
+        $payment = $this->startCheckout('monthly');
+        $this->webhook(['event' => 'payment.captured', 'payload' => ['payment' => ['entity' => ['id' => 'pay_OK', 'order_id' => 'order_TEST1']]]])->assertOk();
+        // A failure from an earlier attempt on the same order, delivered late.
+        $this->webhook(['event' => 'payment.failed', 'payload' => ['payment' => ['entity' => ['id' => 'pay_BAD', 'order_id' => 'order_TEST1']]]])->assertOk();
+        // Razorpay retries the success webhook: still only one month added.
+        $this->webhook(['event' => 'payment.captured', 'payload' => ['payment' => ['entity' => ['id' => 'pay_OK', 'order_id' => 'order_TEST1']]]])->assertOk();
+
+        $this->assertSame('paid', $payment->fresh()->status);
+        $this->assertSame('2027-01-24', Subscription::where('library_id', $this->library->id)->first()->ends_at->toDateString());
+    }
+
+    public function test_a_second_capture_on_a_paid_order_is_kept_for_refund(): void
+    {
+        $payment = $this->startCheckout('monthly');
+        $this->webhook(['event' => 'payment.captured', 'payload' => ['payment' => ['entity' => ['id' => 'pay_ONE', 'order_id' => 'order_TEST1']]]])->assertOk();
+        $this->webhook(['event' => 'payment.captured', 'payload' => ['payment' => ['entity' => ['id' => 'pay_TWO', 'order_id' => 'order_TEST1']]]])->assertOk();
+        $this->webhook(['event' => 'payment.captured', 'payload' => ['payment' => ['entity' => ['id' => 'pay_TWO', 'order_id' => 'order_TEST1']]]])->assertOk();
+
+        $extra = SubscriptionPayment::where('provider_payment_id', 'pay_TWO')->sole();
+        $this->assertSame('refund_due', $extra->status);
+        $this->assertSame($payment->id, $extra->payload['duplicate_of']);
+        // The plan was extended once, and only the real payment is an invoice.
+        $this->assertSame('2027-01-24', Subscription::where('library_id', $this->library->id)->first()->ends_at->toDateString());
+        $this->actingAs($this->owner)->getJson('/api/subscription/payments')->assertJsonCount(1, 'data');
+    }
+
     public function test_razorpay_outage_returns_a_friendly_error(): void
     {
         $this->razorpayDown = true;

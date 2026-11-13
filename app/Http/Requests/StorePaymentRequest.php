@@ -25,6 +25,8 @@ class StorePaymentRequest extends FormRequest
             'notes' => ['nullable', 'string', 'max:500'],
             // Back after a break: restart the membership on this date (checked against their seats in PaymentService).
             'start_date' => ['nullable', 'date_format:Y-m-d'],
+            // Same key on a retry = same payment; it's recorded once (see PaymentService::record).
+            'idempotency_key' => ['nullable', 'string', 'max:64'],
         ];
     }
 }

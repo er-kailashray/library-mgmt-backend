@@ -36,7 +36,7 @@ class SubscriptionPaymentPageController extends Controller
             'libraryName' => $library->library_name,
             'ownerName' => $library->user->name,
             'ownerPhone' => $library->user->phone,
-            'callbackUrl' => URL::temporarySignedRoute('subscription.pay.callback', now()->addMinutes(30), ['payment' => $payment->id]),
+            'callbackUrl' => URL::temporarySignedRoute('subscription.pay.callback', now()->addMinutes(SubscriptionCheckoutService::CHECKOUT_MINUTES), ['payment' => $payment->id]),
             'cancelUrl' => $this->checkout->returnUrl($payment, 'cancelled'),
         ]);
     }

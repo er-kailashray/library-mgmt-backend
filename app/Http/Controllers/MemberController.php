@@ -221,13 +221,12 @@ class MemberController extends Controller
                 $alreadyAllocatedBatch = $member->allocations()
                     ->where('status', 'active')
                     ->whereIn('batch_id', $requestedBatchIds)
-                    ->with('batch')
-                    ->first();
+                    ->exists();
 
                 if ($alreadyAllocatedBatch) {
                     return response()->json([
                         'status' => false,
-                        'message' => "{$member->name} already has an active allocation in {$alreadyAllocatedBatch->batch->name}",
+                        'message' => "This phone number is already registered to {$member->name}.",
                     ], 422);
                 }
 
