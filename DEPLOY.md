@@ -37,3 +37,16 @@ Settings that live on the server, not in code. Go through them before each launc
 
 ## The app
 - Build with `EXPO_PUBLIC_API_URL=https://...`. Release builds refuse a plain `http://` address.
+
+## The web app (PWA, for iPhone owners)
+- Build it in the app repo: `EXPO_PUBLIC_API_URL=https://... npm run build:web` → static files in `dist/`.
+- Host `dist/` over HTTPS on its own address, e.g. `https://app.your-domain`:
+  - **Cloudflare Pages / Netlify** (free): upload `dist/`; `_redirects` and `_headers` in it are
+    picked up automatically.
+  - **Your own nginx**: serve `dist/` as the root with
+    `location / { try_files $uri $uri.html $uri/index.html =404; }`,
+    `location ~ ^/members/[^/]+$ { try_files "/members/[id].html" =404; }`,
+    `error_page 404 /+not-found.html;`, and `Cache-Control: no-cache` on `/sw.js`.
+- Set `WEB_APP_URL=https://app.your-domain` in the backend `.env`, so plan payments started
+  from the web app can return to it (any other web address is refused).
+- Owners install it from Safari: Share → Add to Home Screen.

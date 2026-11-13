@@ -54,6 +54,10 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    // The installed web app (PWA) iPhone owners use, e.g. https://app.example.com. Subscription
+    // checkout may return to pages under it. Empty: only the mobile app's deep links are allowed.
+    'web_app_url' => env('WEB_APP_URL', ''),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

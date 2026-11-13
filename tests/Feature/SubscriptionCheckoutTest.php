@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
-use App\Models\SubscriptionPlan;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\Concerns\BuildsLibrary;
@@ -81,6 +80,18 @@ class SubscriptionCheckoutTest extends TestCase
             ->assertStatus(422);
         $this->actingAs($this->owner)->postJson('/api/subscription/checkout', ['plan' => 'lifetime', 'return_url' => self::RETURN_URL])
             ->assertStatus(422);
+    }
+
+    public function test_checkout_returns_only_to_our_own_web_app(): void
+    {
+        config(['app.web_app_url' => 'https://app.librum.test']);
+
+        foreach (['https://app.librum.test.evil.example/subscription', 'https://evil.example/https://app.librum.test/', 'https://app.librum.test'] as $url) {
+            $this->actingAs($this->owner)->postJson('/api/subscription/checkout', ['plan' => 'yearly', 'return_url' => $url])
+                ->assertStatus(422);
+        }
+        $this->actingAs($this->owner)->postJson('/api/subscription/checkout', ['plan' => 'yearly', 'return_url' => 'https://app.librum.test/subscription'])
+            ->assertOk();
     }
 
     public function test_expired_library_can_still_start_checkout(): void
