@@ -4,11 +4,21 @@ use App\Http\Controllers\Admin\ActivityController;
 use App\Http\Controllers\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Admin\LibraryController as AdminLibraryController;
 use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\ReceiptController;
+use App\Http\Controllers\SiteController;
 use App\Http\Controllers\SubscriptionPaymentPageController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
+// Public website: landing page and the pages app stores and Razorpay need.
+Route::get('/', [SiteController::class, 'home'])->name('home');
+Route::get('/{page}', [SiteController::class, 'page'])->whereIn('page', ['terms', 'privacy', 'refunds', 'contact'])->name('site.page');
+Route::get('/sitemap.xml', [SiteController::class, 'sitemap'])->name('sitemap');
+Route::get('/robots.txt', [SiteController::class, 'robots'])->name('robots');
+
+// Receipt PDFs: member fee receipts and plan invoices, opened from signed links the app shares.
+Route::middleware(['signed', 'throttle:60,1'])->group(function () {
+    Route::get('/receipts/payments/{payment}', [ReceiptController::class, 'payment'])->name('receipts.payment');
+    Route::get('/receipts/invoices/{payment}', [ReceiptController::class, 'invoice'])->name('receipts.invoice');
 });
 
 // Subscription checkout opened from the app's in-app browser. Signed, short-lived URLs only.
@@ -17,7 +27,7 @@ Route::middleware('signed')->group(function () {
     Route::post('/subscription/pay/{payment}/callback', [SubscriptionPaymentPageController::class, 'callback'])->name('subscription.pay.callback');
 });
 
-// Librum admin panel (the Librum team, not library owners).
+// Super admin panel (the LibriSpace team, not library owners: owners use the app).
 Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('/login', [AdminAuthController::class, 'showLogin'])->name('login');
     Route::post('/login', [AdminAuthController::class, 'login'])->middleware('throttle:5,1')->name('login.submit');

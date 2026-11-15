@@ -7,6 +7,7 @@ use App\Models\AdminActivity;
 use App\Models\SubscriptionPlan;
 use App\Services\Settings\AppSettings;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 
 class SettingsController extends Controller
 {
@@ -16,12 +17,18 @@ class SettingsController extends Controller
 
     public function edit()
     {
-        return view('admin.settings', [
+        return Inertia::render('admin/settings', [
             'trialDays' => $this->settings->trialDays(),
-            'plans' => SubscriptionPlan::orderBy('duration_months')->get(),
+            'plans' => SubscriptionPlan::orderBy('duration_months')->get()->map(fn (SubscriptionPlan $plan) => [
+                'id' => $plan->id,
+                'name' => $plan->name,
+                'price' => (int) $plan->price,
+                'months' => $plan->duration_months,
+                'isActive' => $plan->is_active,
+            ]),
             'minTrial' => AppSettings::TRIAL_DAYS_MIN,
             'maxTrial' => AppSettings::TRIAL_DAYS_MAX,
-        ]);
+        ])->withViewData(['noindex' => true]);
     }
 
     /** Free trial for libraries that sign up from now on. Trials already running are not changed. */

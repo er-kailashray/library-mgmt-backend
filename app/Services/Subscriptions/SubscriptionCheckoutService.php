@@ -134,12 +134,18 @@ class SubscriptionCheckoutService
             // once that's in the past (grace or expired) it starts today.
             $startsFrom = $subscription->ends_at->isFuture() ? $subscription->ends_at->copy() : now();
 
+            $endsAt = $startsFrom->copy()->addMonthsNoOverflow($plan->duration_months);
             $subscription->update([
                 'plan_id' => $plan->id,
                 'provider' => 'razorpay',
-                'ends_at' => $startsFrom->addMonthsNoOverflow($plan->duration_months),
+                'ends_at' => $endsAt,
                 'cancelled_at' => null,
             ]);
+
+            // The period this payment bought, printed on its invoice.
+            $payment->update(['payload' => array_merge($payment->payload ?? [], [
+                'period' => ['starts' => $startsFrom->toDateString(), 'ends' => $endsAt->toDateString()],
+            ])]);
         });
     }
 

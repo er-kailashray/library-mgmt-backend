@@ -65,6 +65,13 @@ The API contract is driven by the Expo app in `../mobile-app` (see its `API_CONT
 - Business thresholds (critical-due days, renewal window, recent-payments limit, payment-mode labels) live in `config/library.php`, not in code.
 - Tests share fixtures through `tests/Concerns/BuildsLibrary.php` and pin time with `$this->travelTo(...)`.
 
+### Web pages (Inertia + React + shadcn/ui)
+- `routes/web.php`: `SiteController` serves the landing page (`/`, plans and trial length from the database) and `/terms`, `/privacy`, `/refunds`, `/contact` (business details from `config('library.business_*')`/`support_*`, set in `.env`), plus `/sitemap.xml`. `/admin/*` is the super admin panel (`Admin\*Controller`, `admin` middleware): dashboard with library list, library detail (extend/shorten), settings (trial length, plan prices), activity.
+- Controllers return `Inertia::render('<page>', props)`; pages are `resources/js/pages/<page>.tsx` (lowercase paths, e.g. `admin/dashboard`), root view `resources/views/app.blade.php`, shared props in `HandleInertiaRequests` (admin, flash `status`, links). Pass plain arrays shaped for the page, not models.
+- UI uses shadcn/ui components in `resources/js/components/ui` (add more with `npx shadcn@latest add <name>`; `components.json` is set up), Tailwind v4 with the LibriSpace brand tokens in `resources/css/app.css` (`bg-brand`, `bg-night`, `bg-sand`, `font-serif` = Cormorant Garamond, `font-sans` = Jost). Brand files in `public/brand/` come from `D:\LibraryProrand\kailashray`.
+- `npm run dev` / `npm run build`; `npx tsc --noEmit` typechecks. Tests run `withoutVite()` and use `assertInertia` (`tests/Feature/WebsiteTest.php`, `AdminPanelTest.php`); Inertia checks the page file exists.
+- `resources/views/subscription/pay.blade.php` (Razorpay checkout opened from the app) is still plain Blade.
+
 ### Conventions
 - All routes are in `routes/api.php` (prefixed `/api`); everything except register/verify-otp/login sits behind `auth:sanctum`, and library-scoped endpoints additionally sit in the `library` middleware group.
 - Validation: new endpoints use FormRequest classes (`app/Http/Requests`); older controllers validate inline with `$request->validate()`.

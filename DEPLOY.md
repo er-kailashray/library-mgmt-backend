@@ -15,6 +15,9 @@ Settings that live on the server, not in code. Go through them before each launc
   (`AppServiceProvider`).
 - `SANCTUM_EXPIRATION` - minutes a sign-in lasts (default 90 days).
 - `OTP_SMS_ENABLED=true` with real Twilio credentials; codes are never logged in production.
+- Website details: `SUPPORT_EMAIL`, `SUPPORT_PHONE`, `BUSINESS_NAME`, `BUSINESS_ADDRESS` and
+  `BUSINESS_JURISDICTION` (shown on the Contact, Terms, Privacy and Refund pages; Razorpay and the app
+  stores check these pages). Until set, the pages show a yellow placeholder.
 - Real Razorpay `key_id`, `key_secret` and `webhook_secret`. Without a webhook secret, every
   webhook is refused.
 - Database user with access to this database only.
@@ -26,14 +29,19 @@ Settings that live on the server, not in code. Go through them before each launc
   `local` disk and are only served through the logged-in API.
 
 ## Running
-- `composer install --no-dev --optimize-autoloader`, then `php artisan migrate --force`,
+- `composer install --no-dev --optimize-autoloader`, then `npm ci && npm run build` (the website and
+  super admin panel; output in `public/build/`, needs Node 20+), then `php artisan migrate --force`,
   `php artisan config:cache route:cache view:cache`.
 - Cron: `* * * * * php /path/to/artisan schedule:run` (reminders, alerts, token pruning).
 - A queue worker if `QUEUE_CONNECTION` isn't `sync`.
+- The website's server renderer, kept running by Supervisor (or systemd): `php artisan inertia:start-ssr`
+  (listens on 127.0.0.1:13714). It makes search engines and link previews see the full landing page.
+  Restart it after each deploy (`php artisan inertia:stop-ssr`; Supervisor starts it again). If it's
+  down, pages still work, just rendered in the browser.
 
 ## Keeping it safe
 - `composer audit` before each release; update with `composer update` and run `php artisan test`.
-- Admin accounts are made with `php artisan librum:make-admin` - use a number that isn't an owner's.
+- Admin accounts are made with `php artisan librispace:make-admin` - use a number that isn't an owner's.
 
 ## The app
 - Build with `EXPO_PUBLIC_API_URL=https://...`. Release builds refuse a plain `http://` address.

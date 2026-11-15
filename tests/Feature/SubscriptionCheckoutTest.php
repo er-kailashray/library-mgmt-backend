@@ -84,13 +84,13 @@ class SubscriptionCheckoutTest extends TestCase
 
     public function test_checkout_returns_only_to_our_own_web_app(): void
     {
-        config(['app.web_app_url' => 'https://app.librum.test']);
+        config(['app.web_app_url' => 'https://app.librispace.test']);
 
-        foreach (['https://app.librum.test.evil.example/subscription', 'https://evil.example/https://app.librum.test/', 'https://app.librum.test'] as $url) {
+        foreach (['https://app.librispace.test.evil.example/subscription', 'https://evil.example/https://app.librispace.test/', 'https://app.librispace.test'] as $url) {
             $this->actingAs($this->owner)->postJson('/api/subscription/checkout', ['plan' => 'yearly', 'return_url' => $url])
                 ->assertStatus(422);
         }
-        $this->actingAs($this->owner)->postJson('/api/subscription/checkout', ['plan' => 'yearly', 'return_url' => 'https://app.librum.test/subscription'])
+        $this->actingAs($this->owner)->postJson('/api/subscription/checkout', ['plan' => 'yearly', 'return_url' => 'https://app.librispace.test/subscription'])
             ->assertOk();
     }
 

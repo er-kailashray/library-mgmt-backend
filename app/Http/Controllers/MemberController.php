@@ -13,12 +13,14 @@ use App\Models\SeatAllocation;
 use App\Services\Dues\MemberDueService;
 use App\Services\Dues\MonthlyFeeService;
 use App\Services\Payments\PaymentService;
+use App\Services\Receipts\ReceiptService;
 use App\Services\Reminders\ReminderService;
 use App\Services\Seats\SeatBlockService;
 use App\Services\Seats\SeatChangeService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -309,8 +311,9 @@ class MemberController extends Controller
             }
 
             // After the seats exist, so the payment can keep a copy of them.
+            $admissionPayment = null;
             if ($request->filled('payment')) {
-                Payment::create([
+                $admissionPayment = Payment::create([
                     'library_id' => $library->id,
                     'member_id' => $member->id,
                     'amount' => $paidAmount,
@@ -328,6 +331,11 @@ class MemberController extends Controller
                 'status' => true,
                 'message' => 'Admission successful',
                 'data' => $member->load('allocations'),
+                // Fee receipt for the payment taken at admission, for the owner to send the member.
+                'receipt' => $admissionPayment ? [
+                    'number' => app(ReceiptService::class)->paymentNumber($admissionPayment),
+                    'url' => app(ReceiptService::class)->paymentUrl($admissionPayment),
+                ] : null,
             ]);
         });
     }
@@ -546,7 +554,7 @@ class MemberController extends Controller
 
         DB::transaction(function () use ($request, $member, $owed, $refund, $options) {
             if ($refund > 0) {
-                $this->payments->recordRefund($this->library($request), $member, $refund, $request->input('refund_mode'), \Carbon\Carbon::parse($options['paid_through']));
+                $this->payments->recordRefund($this->library($request), $member, $refund, $request->input('refund_mode'), Carbon::parse($options['paid_through']));
             }
             $member->update(['status' => 'inactive', 'outstanding_balance' => $owed]);
             $member->allocations()->where('status', 'active')->update(['status' => 'ended', 'ended_on' => now()->toDateString()]);
@@ -571,7 +579,7 @@ class MemberController extends Controller
         }
 
         $request->validate(['start_date' => 'required|date_format:Y-m-d']);
-        $this->payments->restart($member, \Carbon\Carbon::parse($request->start_date));
+        $this->payments->restart($member, Carbon::parse($request->start_date));
 
         return response()->json(['status' => true, 'message' => 'Membership restarted']);
     }
@@ -603,7 +611,7 @@ class MemberController extends Controller
     /**
      * The seats a member had when they last left: their most recently ended set.
      *
-     * @return \Illuminate\Support\Collection<int, SeatAllocation>
+     * @return Collection<int, SeatAllocation>
      */
     private function lastSeats(Member $member)
     {

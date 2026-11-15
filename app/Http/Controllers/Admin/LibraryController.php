@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AdminActivity;
 use App\Models\Library;
+use App\Models\Member;
+use App\Models\SubscriptionPayment;
 use App\Services\Subscriptions\SubscriptionService;
 use App\Services\Subscriptions\SubscriptionState;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Inertia\Inertia;
 
 class LibraryController extends Controller
 {
@@ -16,6 +19,14 @@ class LibraryController extends Controller
     public const MAX_ADJUST_DAYS = 365;
 
     private const PER_PAGE = 25;
+
+    /** Status names as the admin panel shows them. */
+    public const STATE_LABELS = [
+        'trial' => 'On free trial',
+        'active' => 'Paid',
+        'grace' => 'Grace period',
+        'expired' => 'Read-only',
+    ];
 
     public function __construct(
         private readonly SubscriptionService $subscriptions,
@@ -62,7 +73,38 @@ class LibraryController extends Controller
             'query' => $request->query(),
         ]);
 
-        return view('admin.libraries.index', compact('libraries', 'counts', 'search', 'status'));
+        $paid = SubscriptionPayment::where('status', 'paid');
+
+        return Inertia::render('admin/dashboard', [
+            'counts' => $counts,
+            'totals' => [
+                'activeMembers' => Member::where('status', 'active')->count(),
+                'newThisMonth' => Library::where('created_at', '>=', now()->startOfMonth())->count(),
+                'revenueThisMonth' => (int) (clone $paid)->where('paid_at', '>=', now()->startOfMonth())->sum('amount'),
+                'revenueTotal' => (int) (clone $paid)->sum('amount'),
+            ],
+            'search' => $search,
+            'status' => $status,
+            'libraries' => [
+                'rows' => $libraries->getCollection()->map(fn ($row) => [
+                    'id' => $row['library']->id,
+                    'name' => $row['library']->library_name,
+                    'owner' => $row['library']->user?->name,
+                    'phone' => $row['library']->user?->phone,
+                    'joined' => $row['library']->created_at->format('j M Y'),
+                    'members' => $row['library']->active_members_count,
+                    'state' => $row['state']->value,
+                    'stateLabel' => self::STATE_LABELS[$row['state']->value],
+                    'plan' => $row['subscription']->plan?->name,
+                    'ends' => $row['subscription']->ends_at->format('j M Y'),
+                ])->values(),
+                'page' => $libraries->currentPage(),
+                'lastPage' => $libraries->lastPage(),
+                'total' => $libraries->total(),
+                'prevUrl' => $libraries->previousPageUrl(),
+                'nextUrl' => $libraries->nextPageUrl(),
+            ],
+        ])->withViewData(['noindex' => true]);
     }
 
     public function show(Library $library)
@@ -75,15 +117,42 @@ class LibraryController extends Controller
         ]);
         $subscription = $this->subscriptions->forLibrary($library);
 
-        return view('admin.libraries.show', [
-            'library' => $library,
-            'subscription' => $subscription,
-            'state' => $this->subscriptions->stateOf($subscription),
-            'graceEndsAt' => $this->subscriptions->graceEndsAt($subscription),
-            'payments' => $subscription->payments()->with('plan')->latest()->get(),
-            'activity' => AdminActivity::with('user')->where('library_id', $library->id)->latest()->limit(20)->get(),
+        $state = $this->subscriptions->stateOf($subscription);
+        $daysLeft = (int) now()->startOfDay()->diffInDays($subscription->ends_at->copy()->startOfDay(), false);
+
+        return Inertia::render('admin/library', [
+            'library' => [
+                'id' => $library->id,
+                'name' => $library->library_name,
+                'owner' => $library->user?->name,
+                'phone' => $library->user?->phone,
+                'address' => $library->address,
+                'joined' => $library->created_at->format('j M Y'),
+                'seats' => $library->seats_count,
+                'batches' => $library->batches_count,
+                'activeMembers' => $library->active_members_count,
+                'totalMembers' => $library->total_members_count,
+            ],
+            'subscription' => [
+                'state' => $state->value,
+                'stateLabel' => self::STATE_LABELS[$state->value],
+                'plan' => $subscription->plan?->name,
+                'starts' => $subscription->starts_at->format('j M Y'),
+                'ends' => $subscription->ends_at->format('j M Y'),
+                'daysLeft' => $daysLeft,
+                'readOnlyFrom' => $this->subscriptions->graceEndsAt($subscription)->format('j M Y'),
+            ],
+            'payments' => $subscription->payments()->with('plan')->latest()->get()->map(fn ($payment) => [
+                'id' => $payment->id,
+                'date' => ($payment->paid_at ?? $payment->created_at)->format('j M Y'),
+                'plan' => $payment->plan?->name,
+                'amount' => (int) $payment->amount,
+                'status' => ucfirst(str_replace('_', ' ', $payment->status)),
+                'invoice' => $payment->invoice_number,
+            ]),
+            'activity' => AdminActivity::with('user')->where('library_id', $library->id)->latest()->limit(20)->get()->map->toRow(),
             'maxAdjustDays' => self::MAX_ADJUST_DAYS,
-        ]);
+        ])->withViewData(['noindex' => true]);
     }
 
     /**

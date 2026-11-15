@@ -6,12 +6,15 @@ use App\Enums\PaymentStatus;
 use App\Models\Library;
 use App\Models\Member;
 use App\Models\Payment;
+use App\Models\SeatAllocation;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
 use App\Repositories\Contracts\SeatAllocationRepositoryInterface;
 use App\Services\Dues\MemberDue;
 use App\Services\Dues\MemberDueService;
+use App\Services\Receipts\ReceiptService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -188,7 +191,7 @@ class PaymentService
      * A copy of the seats a payment was for, kept on the payment so it stays right even if the
      * batch is renamed, re-priced or deleted, or the member later moves seats.
      *
-     * @param  iterable<\App\Models\SeatAllocation>  $allocations
+     * @param  iterable<SeatAllocation>  $allocations
      * @return list<array{batch_id: int, batch_name: string, seat_id: int, seat_number: int, monthly_fee: float}>
      */
     public static function seatSnapshot(iterable $allocations): array
@@ -210,7 +213,7 @@ class PaymentService
     /**
      * The earliest renewal date across a member's active seats: paid up to (not including) this day.
      *
-     * @param  \Illuminate\Support\Collection<int, \App\Models\SeatAllocation>  $allocations
+     * @param  Collection<int, SeatAllocation>  $allocations
      */
     public function paidThrough($allocations): ?Carbon
     {
@@ -220,7 +223,7 @@ class PaymentService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, \App\Models\SeatAllocation>  $allocations
+     * @param  Collection<int, SeatAllocation>  $allocations
      */
     private function restartOn(int $memberId, CarbonInterface $date, $allocations): Carbon
     {
@@ -298,6 +301,9 @@ class PaymentService
             'status' => $payment->status->label(),
             'method' => config("library.payment_modes.{$payment->payment_mode}")
                 ?? config('library.payment_mode_fallback_label'),
+            // PDF receipt the owner can send the member (signed link, no sign-in needed).
+            'receipt_number' => app(ReceiptService::class)->paymentNumber($payment),
+            'receipt_url' => app(ReceiptService::class)->paymentUrl($payment),
         ];
     }
 }

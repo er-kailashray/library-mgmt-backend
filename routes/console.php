@@ -30,7 +30,7 @@ Schedule::command('notifications:batch-starts')->everyMinute()->withoutOverlappi
 // Expired sign-in tokens (see sanctum.expiration) are deleted once a day.
 Schedule::command('sanctum:prune-expired --hours=24')->daily();
 
-Artisan::command('librum:make-admin {phone : 10-digit phone number used to sign in} {--name=Librum Admin}', function (string $phone) {
+Artisan::command('librispace:make-admin {phone : 10-digit phone number used to sign in} {--name=LibriSpace Admin}', function (string $phone) {
     if (! preg_match('/^[6-9]\d{9}$/', $phone)) {
         $this->error('Enter a valid 10-digit phone number.');
 
@@ -59,4 +59,4 @@ Artisan::command('librum:make-admin {phone : 10-digit phone number used to sign 
     $admin->forceFill(['phone_verified_at' => now()])->save();
 
     $this->info(($existing ? 'Updated' : 'Created')." admin {$phone}. Sign in at ".url('/admin').'.');
-})->purpose("Create a Librum admin panel account, or reset an admin's password");
+})->purpose("Create a LibriSpace admin panel account, or reset an admin's password");

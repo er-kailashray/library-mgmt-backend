@@ -85,8 +85,10 @@ class SubscriptionService
             'name' => $plan->name,
             'price' => $plan->price,
             'duration_months' => $plan->duration_months,
-            // Effective monthly price, so the yearly saving can be shown.
+            // Effective monthly price, so the saving on longer plans can be shown.
             'monthly_equivalent' => round($plan->price / max(1, $plan->duration_months), 2),
+            // 'Most popular' / 'Best value' (config/library.php), or null.
+            'badge' => config('library.plan_badges')[$plan->duration_months] ?? null,
         ];
     }
 }

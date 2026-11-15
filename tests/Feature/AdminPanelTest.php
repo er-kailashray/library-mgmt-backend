@@ -11,6 +11,7 @@ use App\Services\Settings\AppSettings;
 use App\Services\Subscriptions\SubscriptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Concerns\BuildsLibrary;
 use Tests\TestCase;
 
@@ -40,7 +41,7 @@ class AdminPanelTest extends TestCase
     {
         $this->post('/admin/login', ['phone' => '9000000001', 'password' => 'admin-pass-1'])->assertRedirect(route('admin.libraries'));
 
-        $this->get('/admin')->assertOk()->assertSee('Gyan Library')->assertSee('On free trial');
+        $this->get('/admin')->assertOk()->assertInertia(fn (Assert $page) => $page->component('admin/dashboard')->where('libraries.rows.0.name', 'Gyan Library')->where('libraries.rows.0.stateLabel', 'On free trial'));
     }
 
     public function test_library_owner_cannot_sign_in_to_admin(): void
@@ -150,9 +151,24 @@ class AdminPanelTest extends TestCase
     {
         $this->actingAs($this->admin)->post("/admin/libraries/{$this->library->id}/subscription", ['days' => 5, 'reason' => 'Test']);
 
-        $this->actingAs($this->admin)->get("/admin/libraries/{$this->library->id}")->assertOk()->assertSee('Extend or shorten this trial')->assertSee('Test');
-        $this->actingAs($this->admin)->get('/admin/settings')->assertOk()->assertSee('Free trial for new libraries');
-        $this->actingAs($this->admin)->get('/admin/activity')->assertOk()->assertSee('Extended trial by 5 days');
-        $this->actingAs($this->admin)->get('/admin?q=Gyan&status=trial')->assertOk()->assertSee('Gyan Library');
+        $this->actingAs($this->admin)->get("/admin/libraries/{$this->library->id}")->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('admin/library')
+                ->where('library.name', 'Gyan Library')
+                ->where('subscription.plan', null)
+                ->where('activity.0.note', 'Test'));
+        $this->actingAs($this->admin)->get('/admin/settings')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('admin/settings')->has('plans')->has('trialDays'));
+        $this->actingAs($this->admin)->get('/admin/activity')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('admin/activity')->where('activity.rows.0.text', fn ($text) => str_starts_with($text, 'Extended trial by 5 days')));
+        $this->actingAs($this->admin)->get('/admin?q=Gyan&status=trial')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('admin/dashboard')
+                ->where('libraries.rows.0.name', 'Gyan Library')
+                ->where('libraries.rows.0.stateLabel', 'On free trial')
+                ->has('totals'));
+    }
+
+    public function test_sign_in_page_renders(): void
+    {
+        $this->get('/admin/login')->assertOk()->assertInertia(fn (Assert $page) => $page->component('admin/login'));
     }
 }

@@ -5,7 +5,7 @@ namespace App\Services\Settings;
 use App\Models\AppSetting;
 
 /**
- * Settings the Librum team changes from the admin panel (no deploy needed). Falls back to
+ * Settings the LibriSpace team changes from the admin panel (no deploy needed). Falls back to
  * config when a setting has never been saved.
  */
 class AppSettings

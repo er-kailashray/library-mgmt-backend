@@ -5,13 +5,18 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
 
-/** Admin panel sign-in: phone and password, admins only. Admins are created with `php artisan librum:make-admin`. */
+/** Admin panel sign-in: phone and password, admins only. Admins are created with `php artisan librispace:make-admin`. */
 class AuthController extends Controller
 {
     public function showLogin()
     {
-        return Auth::check() && Auth::user()->role === 'admin' ? redirect()->route('admin.libraries') : view('admin.login');
+        if (Auth::check() && Auth::user()->role === 'admin') {
+            return redirect()->route('admin.libraries');
+        }
+
+        return Inertia::render('admin/login')->withViewData(['noindex' => true]);
     }
 
     public function login(Request $request)

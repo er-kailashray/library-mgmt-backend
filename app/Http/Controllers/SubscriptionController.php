@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\SubscriptionPayment;
 use App\Models\SubscriptionPlan;
+use App\Services\Receipts\ReceiptService;
 use App\Services\Subscriptions\SubscriptionCheckoutService;
 use App\Services\Subscriptions\SubscriptionService;
 use Illuminate\Http\Client\RequestException;
@@ -86,6 +87,7 @@ class SubscriptionController extends Controller
                 ->map(fn (SubscriptionPayment $payment) => [
                     'id' => $payment->id,
                     'invoice_number' => $payment->invoice_number,
+                    'invoice_url' => app(ReceiptService::class)->invoiceUrl($payment),
                     'plan' => $payment->plan->name,
                     'amount' => $payment->amount,
                     'paid_at' => $payment->paid_at->toIso8601String(),

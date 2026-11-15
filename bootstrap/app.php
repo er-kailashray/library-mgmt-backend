@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Middleware\EnsureAdmin;
+use App\Http\Middleware\EnsureSubscriptionAllowsWrites;
+use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\ResolveLibrary;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,10 +20,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // signed URL and the payment signature instead of a CSRF token.
         $middleware->validateCsrfTokens(except: ['subscription/pay/*/callback']);
 
+        $middleware->web(append: [
+            HandleInertiaRequests::class,
+        ]);
+
         $middleware->alias([
-            'library' => \App\Http\Middleware\ResolveLibrary::class,
-            'subscription' => \App\Http\Middleware\EnsureSubscriptionAllowsWrites::class,
-            'admin' => \App\Http\Middleware\EnsureAdmin::class,
+            'library' => ResolveLibrary::class,
+            'subscription' => EnsureSubscriptionAllowsWrites::class,
+            'admin' => EnsureAdmin::class,
         ]);
 
         // Signed-out visitors to the admin panel go to its sign-in page (the API answers 401 instead).

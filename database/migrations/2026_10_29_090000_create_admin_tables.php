@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * For the Librum admin panel: settings we change without a deploy (e.g. the free trial length),
+ * For the LibriSpace admin panel: settings we change without a deploy (e.g. the free trial length),
  * and a record of every change an admin makes.
  */
 return new class extends Migration

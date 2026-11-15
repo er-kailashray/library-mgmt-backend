@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Library;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsLibrary;
 use Tests\TestCase;
@@ -30,16 +29,23 @@ class SubscriptionApiTest extends TestCase
         ]);
     }
 
-    public function test_plans_are_seeded_with_launch_prices(): void
+    public function test_four_plans_are_offered_with_longer_ones_cheaper_per_month(): void
     {
         $this->actingAs($this->owner)->getJson('/api/subscription')
             ->assertOk()
-            ->assertJsonCount(2, 'data.plans')
+            ->assertJsonCount(4, 'data.plans')
             ->assertJsonPath('data.plans.0.code', 'monthly')
-            ->assertJsonPath('data.plans.0.price', 299)
-            ->assertJsonPath('data.plans.1.code', 'yearly')
-            ->assertJsonPath('data.plans.1.price', 2999)
-            ->assertJsonPath('data.plans.1.duration_months', 12);
+            ->assertJsonPath('data.plans.0.price', 399)
+            ->assertJsonPath('data.plans.0.badge', null)
+            ->assertJsonPath('data.plans.1.code', 'quarterly')
+            ->assertJsonPath('data.plans.1.price', 999)
+            ->assertJsonPath('data.plans.2.code', 'half_yearly')
+            ->assertJsonPath('data.plans.2.price', 1799)
+            ->assertJsonPath('data.plans.2.badge', 'Most popular')
+            ->assertJsonPath('data.plans.3.code', 'yearly')
+            ->assertJsonPath('data.plans.3.price', 2999)
+            ->assertJsonPath('data.plans.3.duration_months', 12)
+            ->assertJsonPath('data.plans.3.badge', 'Best value');
     }
 
     // The default trial is 60 days (changeable in the admin panel; see AdminPanelTest).
