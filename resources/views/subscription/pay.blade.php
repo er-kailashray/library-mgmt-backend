@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Librum · {{ $planName }} plan</title>
+    <title>LibriSpace · {{ $planName }} plan</title>
     <style>
         :root { --bg: #FDFCF9; --fg: #171614; --muted: #78716C; --accent: #E26D4D; --card: #FFFFFF; --border: #E7E5E4; }
         @media (prefers-color-scheme: dark) { :root { --bg: #0C0A09; --fg: #FAFAF9; --muted: #A8A29E; --card: #171615; --border: #292524; } }
@@ -36,7 +36,7 @@
             order_id: @json($orderId),
             amount: @json($amountInPaise),
             currency: "INR",
-            name: "Librum",
+            name: "LibriSpace",
             description: @json($planName . ' plan · ' . $libraryName),
             prefill: { name: @json($ownerName), contact: @json('+91' . $ownerPhone) },
             theme: { color: "#E26D4D" },

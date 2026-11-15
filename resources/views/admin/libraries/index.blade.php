@@ -8,7 +8,7 @@
 
 @section('content')
     <h1>Libraries</h1>
-    <p class="subtitle">Every library on Librum and where its subscription stands. Open one to extend or shorten its trial or plan.</p>
+    <p class="subtitle">Every library on LibriSpace and where its subscription stands. Open one to extend or shorten its trial or plan.</p>
 
     <div class="stats">
         @foreach ($labels as $key => $label)

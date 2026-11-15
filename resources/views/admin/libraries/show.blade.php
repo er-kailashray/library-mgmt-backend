@@ -10,7 +10,7 @@
 @section('content')
     <p style="margin: 0 0 12px;"><a href="{{ route('admin.libraries') }}" class="muted" style="text-decoration: none; font-weight: 700;">← All libraries</a></p>
     <h1>{{ $library->library_name }}</h1>
-    <p class="subtitle">Library #{{ $library->id }} · joined Librum {{ $library->created_at->format('j M Y') }}</p>
+    <p class="subtitle">Library #{{ $library->id }} · joined LibriSpace {{ $library->created_at->format('j M Y') }}</p>
 
     <div class="row" style="align-items: stretch;">
         <div class="card">

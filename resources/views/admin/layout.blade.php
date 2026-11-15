@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
-    <title>@yield('title', 'Admin') · Librum</title>
+    <title>@yield('title', 'Admin') · LibriSpace</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -74,7 +74,7 @@
 @auth
     <header class="topbar">
         <div class="topbar-inner">
-            <a class="brand" href="{{ route('admin.libraries') }}"><span class="brand-mark">L</span> Librum <small>Admin</small></a>
+            <a class="brand" href="{{ route('admin.libraries') }}"><span class="brand-mark">L</span> LibriSpace <small>Admin</small></a>
             <nav>
                 <a href="{{ route('admin.libraries') }}" class="{{ request()->routeIs('admin.libraries*') ? 'active' : '' }}">Libraries</a>
                 <a href="{{ route('admin.settings') }}" class="{{ request()->routeIs('admin.settings*') ? 'active' : '' }}">Settings</a>

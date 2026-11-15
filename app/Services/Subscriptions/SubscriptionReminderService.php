@@ -85,7 +85,7 @@ class SubscriptionReminderService
         try {
             $this->notifications->send('sms', new MessageDTO(
                 to: str_starts_with($owner->phone, '+') ? $owner->phone : '+91'.$owner->phone,
-                message: 'Librum: '.$this->message($subscription, $kind).' Open Librum > Settings > Plan & Billing.',
+                message: 'LibriSpace: '.$this->message($subscription, $kind).' Open LibriSpace > Settings > Plan & Billing.',
             ));
         } catch (\Throwable $e) {
             Log::warning('Subscription reminder failed', ['subscription_id' => $subscription->id, 'kind' => $kind, 'error' => $e->getMessage()]);
@@ -117,7 +117,7 @@ class SubscriptionReminderService
         return true;
     }
 
-    /** Shared by both channels; the SMS adds the "Librum:" prefix and where to go in the app. */
+    /** Shared by both channels; the SMS adds the "LibriSpace:" prefix and where to go in the app. */
     private function message(Subscription $subscription, string $kind): string
     {
         $library = $subscription->library->library_name;
